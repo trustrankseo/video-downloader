@@ -2,13 +2,15 @@ name: Build Flet APK
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
+      JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
 
     steps:
       - name: Checkout code
@@ -19,19 +21,50 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Setup Java (required for Android SDK)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.22.0'
 
+      - name: Install Android command-line tools and SDK components
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y unzip curl
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          curl -o /tmp/cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+          unzip -q /tmp/cmdline-tools.zip -d "$ANDROID_SDK_ROOT"
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          mv "$ANDROID_SDK_ROOT/cmdline-tools"/* "$ANDROID_SDK_ROOT/cmdline-tools/latest/" || true
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+          yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses
+          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+
+      - name: Verify Flutter & Android setup
+        run: |
+          flutter --version
+          flutter doctor -v
+
       - name: Install Flet CLI
         run: pip install flet-cli==0.86.5
 
       - name: Build APK
-        run: flet build apk
+        run: |
+          # optional: flutter pub get
+          flutter pub get
+          # build using Flet CLI
+          flet build apk
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: VideoDownloader-APK
-          path: build/apk/app-release.apk
+          path: |
+            build/**/*.apk
+            build/**/app-release.apk
+            build/apk/app-release.apk
