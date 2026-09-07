@@ -11,8 +11,8 @@ android {
         applicationId = "com.faisal.freshdownloader"
         minSdk = 29
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.2.3"
+        versionCode = 8
+        versionName = "1.2.4"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
