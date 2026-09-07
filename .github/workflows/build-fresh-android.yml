@@ -28,27 +28,45 @@ jobs:
           mkdir -p signing
           base64 -d signing/universal-test.jks.b64 > signing/universal-test.jks
           keytool -list -v -keystore signing/universal-test.jks -storepass android -alias universaltest | grep -E "Owner:|SHA256:"
-      - name: Harden TikTok CAPTCHA lifecycle
+      - name: Harden TikTok scanner and CAPTCHA lifecycle
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p = Path('app/src/main/java/com/faisal/freshdownloader/PublicProfileBrowserScanner.kt')
           s = p.read_text()
+
+          old = 'webView.loadUrl(targetUrl)\n            }\n        }\n        root.addView(continueButton'
+          new = 'if (platform == "tiktok") {\n                    webView.settings.userAgentString = MOBILE_UA\n                }\n                webView.loadUrl(targetUrl)\n            }\n        }\n        root.addView(continueButton'
+          if old not in s:
+              raise SystemExit('Continue-to-profile block not found')
+          s = s.replace(old, new, 1)
+
+          old = "else{(html.match(/\\/@[^\\\"'<>\\\\/]+\\/video\\/\\d+/gi)||[]).forEach(x=>links.push('https://www.tiktok.com'+x));links=links.filter(h=>/tiktok\\.com\\/@[^/]+\\/video\\/\\d+/i.test(h));}"
+          new = """else{
+                (html.match(/\\/@[^\\\"'<>\\\\/]+\\/video\\/\\d+/gi)||[]).forEach(x=>links.push('https://www.tiktok.com'+x));
+                const m=(location.pathname||'').match(/^\\/@([^/]+)/i); const user=m&&m[1]?m[1]:'';
+                if(user){
+                  const pats=[/\"id\"\\s*:\\s*\"(\\d{10,})\"\\s*,\\s*\"desc\"/g,/\"awemeId\"\\s*:\\s*\"(\\d{10,})\"/g,/\"aweme_id\"\\s*:\\s*\"(\\d{10,})\"/g];
+                  pats.forEach(r=>{let q; while((q=r.exec(html))!==null){links.push('https://www.tiktok.com/@'+user+'/video/'+q[1]);}});
+                }
+                links=links.filter(h=>/tiktok\\.com\\/@[^/]+\\/video\\/\\d+/i.test(h));
+              }"""
+          if old not in s:
+              raise SystemExit('TikTok DOM extraction block not found')
+          s = s.replace(old, new, 1)
+
           old = 'override fun onDestroy(){PublicProfileBrowserScanner.detach(this);if(!finished)PublicProfileBrowserScanner.complete(requestId,found.toList());handler.removeCallbacksAndMessages(null);if(::webView.isInitialized)runCatching{webView.destroy()};super.onDestroy()}'
           new = '''override fun onDestroy(){
               PublicProfileBrowserScanner.detach(this)
-              // TikTok CAPTCHA/verification can transiently recreate or destroy the WebView Activity.
-              // Never release discovered links to the downloader from an implicit lifecycle destroy;
-              // only explicit USE/CANCEL/BACK may complete the scan. This prevents fetching from
-              // starting behind the CAPTCHA while the user is still solving it.
               if(!finished && platform != "tiktok") PublicProfileBrowserScanner.complete(requestId,found.toList())
               handler.removeCallbacksAndMessages(null)
               if(::webView.isInitialized) runCatching{webView.destroy()}
               super.onDestroy()
           }'''
           if old not in s:
-              raise SystemExit('Expected onDestroy block not found; refusing unverified patch')
-          p.write_text(s.replace(old, new))
+              raise SystemExit('Expected onDestroy block not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
           PY
       - run: gradle :app:assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
