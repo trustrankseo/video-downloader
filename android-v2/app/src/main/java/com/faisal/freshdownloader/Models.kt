@@ -1,7 +1,7 @@
 package com.faisal.freshdownloader
 
 enum class DownloadMode { SINGLE, BULK, COLLECTION }
-enum class DownloadStatus { QUEUED, DISCOVERING, DOWNLOADING, COMPLETE, FAILED }
+enum class DownloadStatus { QUEUED, DISCOVERING, DOWNLOADING, COMPLETE, FAILED, CANCELLED }
 enum class FormatPreset { VIDEO_MP4, AUDIO_MP3 }
 
 data class DownloadTask(
