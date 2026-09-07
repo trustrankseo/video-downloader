@@ -59,4 +59,25 @@ new = '''    private fun applySessionCookie(request: YoutubeDLRequest, rootUrl: 
 '''
 if old not in t:
     raise SystemExit('applySessionCookie patch target not found')
-e.write_text(t.replace(old, new, 1))
+t = t.replace(old, new, 1)
+
+# TikTok broke in recent yt-dlp nightly builds on Android because those builds request
+# browser impersonation support that youtubedl-android does not package. Keep the
+# library's bundled yt-dlp for social downloads instead of replacing it with the
+# currently broken nightly release at runtime.
+old = '''    private fun prepareSocialEngineIfNeeded() {
+        if (socialEnginePrepared || cancelRequested) return
+        YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.NIGHTLY)
+        socialEnginePrepared = true
+    }
+'''
+new = '''    private fun prepareSocialEngineIfNeeded() {
+        if (socialEnginePrepared || cancelRequested) return
+        socialEnginePrepared = true
+    }
+'''
+if old not in t:
+    raise SystemExit('prepareSocialEngineIfNeeded patch target not found')
+t = t.replace(old, new, 1)
+
+e.write_text(t)
