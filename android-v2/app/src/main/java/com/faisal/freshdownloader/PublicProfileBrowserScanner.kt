@@ -50,11 +50,8 @@ object PublicProfileBrowserScanner {
         pending.clear()
         Handler(Looper.getMainLooper()).post { activeActivity?.get()?.cancelFromEngine() }
     }
-
     internal fun attach(activity: PublicProfileScanActivity) { activeActivity = WeakReference(activity) }
-    internal fun detach(activity: PublicProfileScanActivity) {
-        if (activeActivity?.get() === activity) activeActivity = null
-    }
+    internal fun detach(activity: PublicProfileScanActivity) { if (activeActivity?.get() === activity) activeActivity = null }
     internal fun complete(requestId: String?, urls: List<String>) {
         if (!requestId.isNullOrBlank()) pending.remove(requestId)?.complete(urls.distinct().take(300))
     }
@@ -85,6 +82,7 @@ class PublicProfileScanActivity : Activity() {
     private var lastFoundCount = 0
     private var loginFlowActive = false
     private var loginCompletedInThisActivity = false
+    private var tiktokReadyToFinish = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -127,25 +125,21 @@ class PublicProfileScanActivity : Activity() {
             setAcceptCookie(true)
             setAcceptThirdPartyCookies(webView, true)
         }
-
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val scheme = request?.url?.scheme?.lowercase().orEmpty()
                 return scheme.isNotBlank() && scheme != "http" && scheme != "https"
             }
-
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 if (finished) return
                 val current = url.orEmpty()
                 if (!isHttpUrl(current)) return
                 CookieManager.getInstance().flush()
-
                 if (platform == "tiktok") {
                     inspectTikTokPage(current)
                     return
                 }
-
                 if (loginFlowActive && isLoginUrl(current)) {
                     statusView.text = "Sign in on the official Instagram page below."
                     return
@@ -160,7 +154,6 @@ class PublicProfileScanActivity : Activity() {
                 openOrScanProfile(current)
             }
         }
-
         root.addView(webView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         root.addView(Button(this).apply {
@@ -169,9 +162,11 @@ class PublicProfileScanActivity : Activity() {
                 if (finished) return@setOnClickListener
                 generation++
                 loginFlowActive = true
+                tiktokReadyToFinish = false
                 found.clear()
+                continueButton.text = "CONTINUE TO PROFILE"
                 continueButton.visibility = if (platform == "tiktok") View.VISIBLE else View.GONE
-                statusView.text = if (platform == "tiktok") "Complete TikTok login and any CAPTCHA below. The app will stay here until you tap CONTINUE TO PROFILE." else "Opening official Instagram sign-in…"
+                statusView.text = if (platform == "tiktok") "Complete TikTok login and CAPTCHA below. Nothing will auto-close; only you can continue." else "Opening official Instagram sign-in…"
                 webView.loadUrl(loginUrl())
             }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 10 })
@@ -181,10 +176,16 @@ class PublicProfileScanActivity : Activity() {
             visibility = View.GONE
             setOnClickListener {
                 if (finished) return@setOnClickListener
+                if (platform == "tiktok" && tiktokReadyToFinish) {
+                    completeAndFinish()
+                    return@setOnClickListener
+                }
                 CookieManager.getInstance().flush()
                 generation++
                 loginFlowActive = false
                 loginCompletedInThisActivity = true
+                tiktokReadyToFinish = false
+                text = "CONTINUE TO PROFILE"
                 visibility = View.GONE
                 statusView.text = "Using your TikTok session. Opening requested profile…"
                 webView.loadUrl(targetUrl)
@@ -198,54 +199,49 @@ class PublicProfileScanActivity : Activity() {
                 if (finished) return@setOnClickListener
                 generation++
                 loginFlowActive = false
+                tiktokReadyToFinish = false
+                continueButton.text = "CONTINUE TO PROFILE"
                 continueButton.visibility = View.GONE
                 found.clear()
                 webView.loadUrl(targetUrl)
             }
         }
         root.addView(scanButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 8 })
-
-        root.addView(Button(this).apply {
-            text = "CANCEL"
-            setOnClickListener { completeAndFinish() }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 8 })
-
+        root.addView(Button(this).apply { text = "CANCEL"; setOnClickListener { completeAndFinish() } }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 8 })
         root.addView(TextView(this).apply {
-            text = if (platform == "tiktok") "TikTok CAPTCHA is completed manually on TikTok's page. Universal Downloader does not solve or bypass it and will not auto-close while a challenge is visible." else "Your password is entered only on Instagram's official webpage."
+            text = if (platform == "tiktok") "TikTok CAPTCHA is manual. This browser will never auto-finish a TikTok scan; after verification and scanning, tap USE FOUND VIDEOS yourself." else "Your password is entered only on Instagram's official webpage."
             textSize = 12f
             setTextColor(Color.rgb(85, 221, 247))
             setPadding(0, 10, 0, 0)
         })
-
         setContentView(root)
         webView.loadUrl(targetUrl)
     }
 
     private fun inspectTikTokPage(current: String) {
         val script = """
-            (function(){
-              try {
-                const href=(location.href||'').toLowerCase();
-                const body=(document.body&&document.body.innerText||'').toLowerCase();
-                const html=(document.documentElement&&document.documentElement.innerHTML||'').toLowerCase();
-                const node=!!document.querySelector('iframe[src*="captcha" i],iframe[src*="verify" i],[id*="captcha" i],[class*="captcha" i],[id*="verify" i],[class*="verify" i],[data-e2e*="captcha" i]');
-                const text=body.includes('verify to continue')||body.includes('security verification')||body.includes('complete the puzzle')||body.includes('drag the slider')||body.includes('captcha');
-                const route=href.includes('/login')||href.includes('/challenge')||href.includes('/verify')||href.includes('/verification')||href.includes('captcha');
-                return JSON.stringify({challenge:(node||text||route),login:href.includes('/login'),htmlCaptcha:(html.includes('captcha')&&body.length<20000)});
-              } catch(e){return JSON.stringify({challenge:false,login:false,htmlCaptcha:false});}
-            })();
+            (function(){try{
+              const href=(location.href||'').toLowerCase();
+              const body=(document.body&&document.body.innerText||'').toLowerCase();
+              const node=!!document.querySelector('iframe[src*="captcha" i],iframe[src*="verify" i],[id*="captcha" i],[class*="captcha" i],[id*="verify" i],[class*="verify" i],[data-e2e*="captcha" i],[class*="secsdk" i]');
+              const text=body.includes('verify to continue')||body.includes('security verification')||body.includes('complete the puzzle')||body.includes('drag the slider')||body.includes('captcha')||body.includes('puzzle');
+              const route=href.includes('/login')||href.includes('/challenge')||href.includes('/verify')||href.includes('/verification')||href.includes('captcha');
+              return JSON.stringify({challenge:(node||text||route),login:href.includes('/login')});
+            }catch(e){return JSON.stringify({challenge:true,login:true});}})();
         """.trimIndent()
         webView.evaluateJavascript(script) { raw ->
             if (finished) return@evaluateJavascript
             val decoded = runCatching { JSONTokener(raw).nextValue() as? String }.getOrNull().orEmpty()
             val obj = runCatching { JSONObject(decoded) }.getOrNull()
-            val challenge = obj?.optBoolean("challenge", false) == true || obj?.optBoolean("htmlCaptcha", false) == true
-            val login = obj?.optBoolean("login", false) == true
+            val challenge = obj?.optBoolean("challenge", true) != false
+            val login = obj?.optBoolean("login", true) != false
             if (challenge || login || loginFlowActive) {
                 generation++
                 loginFlowActive = true
+                tiktokReadyToFinish = false
+                continueButton.text = "CONTINUE TO PROFILE"
                 continueButton.visibility = View.VISIBLE
-                statusView.text = "TikTok verification/CAPTCHA is active. Finish it completely; this screen will not auto-back. Then tap CONTINUE TO PROFILE."
+                statusView.text = "TikTok login/CAPTCHA is active. Finish it completely. This screen cannot auto-close; then tap CONTINUE TO PROFILE."
                 return@evaluateJavascript
             }
             openOrScanProfile(current)
@@ -257,9 +253,7 @@ class PublicProfileScanActivity : Activity() {
             if (hasAuthenticatedSession() || loginCompletedInThisActivity) {
                 statusView.text = "Login session active. Opening requested profile…"
                 handler.postDelayed({ if (!finished && !loginFlowActive) webView.loadUrl(targetUrl) }, 500)
-            } else {
-                statusView.text = "Tap SIGN IN once, or SCAN PROFILE to try the visible page."
-            }
+            } else statusView.text = "Tap SIGN IN once, or SCAN PROFILE to try the visible page."
             return
         }
         generation++
@@ -275,35 +269,28 @@ class PublicProfileScanActivity : Activity() {
         if (finished || expectedGeneration != generation || loginFlowActive) return
         val p = if (platform == "instagram") "instagram" else "tiktok"
         val script = """
-            (function(){
-              try{
-                const p='$p', href=(location.href||'').toLowerCase();
-                const html=(document.documentElement&&document.documentElement.innerHTML)||'';
-                const body=(document.body&&document.body.innerText||'').toLowerCase();
-                let links=Array.from(document.querySelectorAll('a[href]')).map(a=>a.href||'');
-                if(p==='instagram'){
-                  (html.match(/\/(?:reel|p)\/[A-Za-z0-9_-]+\/?/gi)||[]).forEach(x=>links.push('https://www.instagram.com'+x));
-                  links=links.filter(h=>/instagram\.com\/(reel|p)\/[A-Za-z0-9_-]+/i.test(h));
-                }else{
-                  (html.match(/\/@[^\"'<>\\/]+\/video\/\d+/gi)||[]).forEach(x=>links.push('https://www.tiktok.com'+x));
-                  links=links.filter(h=>/tiktok\.com\/@[^/]+\/video\/\d+/i.test(h));
-                }
-                const pw=!!document.querySelector('input[type="password"]');
-                const login=p==='instagram'?href.includes('/accounts/login'):href.includes('/login');
-                const captcha=p==='tiktok'&&(href.includes('/challenge')||href.includes('/verify')||href.includes('captcha')||body.includes('verify to continue')||body.includes('security verification')||body.includes('complete the puzzle')||body.includes('drag the slider')||!!document.querySelector('iframe[src*="captcha" i],[id*="captcha" i],[class*="captcha" i]'));
-                return JSON.stringify({links:Array.from(new Set(links)),login:(login||pw),captcha:captcha});
-              }catch(e){return JSON.stringify({links:[],login:false,captcha:false});}
-            })();
+            (function(){try{
+              const p='$p',href=(location.href||'').toLowerCase(),html=(document.documentElement&&document.documentElement.innerHTML)||'',body=(document.body&&document.body.innerText||'').toLowerCase();
+              let links=Array.from(document.querySelectorAll('a[href]')).map(a=>a.href||'');
+              if(p==='instagram'){(html.match(/\/(?:reel|p)\/[A-Za-z0-9_-]+\/?/gi)||[]).forEach(x=>links.push('https://www.instagram.com'+x));links=links.filter(h=>/instagram\.com\/(reel|p)\/[A-Za-z0-9_-]+/i.test(h));}
+              else{(html.match(/\/@[^\"'<>\\/]+\/video\/\d+/gi)||[]).forEach(x=>links.push('https://www.tiktok.com'+x));links=links.filter(h=>/tiktok\.com\/@[^/]+\/video\/\d+/i.test(h));}
+              const pw=!!document.querySelector('input[type="password"]');
+              const login=p==='instagram'?href.includes('/accounts/login'):href.includes('/login');
+              const captcha=p==='tiktok'&&(href.includes('/challenge')||href.includes('/verify')||href.includes('captcha')||body.includes('verify to continue')||body.includes('security verification')||body.includes('complete the puzzle')||body.includes('drag the slider')||body.includes('puzzle')||!!document.querySelector('iframe[src*="captcha" i],[id*="captcha" i],[class*="captcha" i],[class*="secsdk" i]'));
+              return JSON.stringify({links:Array.from(new Set(links)),login:(login||pw),captcha:captcha});
+            }catch(e){return JSON.stringify({links:[],login:false,captcha:true});}})();
         """.trimIndent()
         webView.evaluateJavascript(script) { raw ->
             if (finished || expectedGeneration != generation || loginFlowActive) return@evaluateJavascript
             val decoded = runCatching { JSONTokener(raw).nextValue() as? String }.getOrNull().orEmpty()
             val obj = runCatching { JSONObject(decoded) }.getOrNull()
-            if (platform == "tiktok" && obj?.optBoolean("captcha", false) == true) {
+            if (platform == "tiktok" && obj?.optBoolean("captcha", true) != false) {
                 generation++
                 loginFlowActive = true
+                tiktokReadyToFinish = false
+                continueButton.text = "CONTINUE TO PROFILE"
                 continueButton.visibility = View.VISIBLE
-                statusView.text = "TikTok CAPTCHA detected. Complete it manually; auto scan is paused and this screen will stay open."
+                statusView.text = "TikTok CAPTCHA detected. Scanning is paused. Finish CAPTCHA, then tap CONTINUE TO PROFILE."
                 return@evaluateJavascript
             }
             val links = obj?.optJSONArray("links")
@@ -325,6 +312,13 @@ class PublicProfileScanActivity : Activity() {
                 handler.postDelayed({ scanDom(expectedGeneration) }, 1000)
             } else if (found.isEmpty() && authenticated) {
                 statusView.text = "Signed in, but no video links were visible yet. Scroll once and tap SCAN PROFILE again."
+            } else if (platform == "tiktok") {
+                // Critical: TikTok never auto-closes. CAPTCHA overlays can appear after feed links
+                // are already visible, so only an explicit user tap may return discovered videos.
+                tiktokReadyToFinish = true
+                continueButton.text = "USE ${found.size} FOUND VIDEOS"
+                continueButton.visibility = View.VISIBLE
+                statusView.text = "Found ${found.size} videos. If TikTok shows verification, finish it first. When ready, tap USE FOUND VIDEOS."
             } else {
                 completeAndFinish()
             }
@@ -337,53 +331,17 @@ class PublicProfileScanActivity : Activity() {
         val c = cookies.lowercase()
         return if (platform == "instagram") "sessionid=" in c || "ds_user_id=" in c else "sessionid=" in c || "sessionid_ss=" in c || "sid_tt=" in c || "sid_guard=" in c
     }
-
     private fun loginUrl() = if (platform == "instagram") "https://www.instagram.com/accounts/login/" else "https://www.tiktok.com/login/phone-or-email/email"
     private fun isLoginUrl(raw: String) = if (platform == "instagram") "instagram.com/accounts/login" in raw.lowercase() else "tiktok.com/login" in raw.lowercase()
-    private fun isPlatformHost(raw: String): Boolean = runCatching {
-        val h = URL(raw).host.removePrefix("www.").lowercase()
-        if (platform == "instagram") h == "instagram.com" || h.endsWith(".instagram.com") else h == "tiktok.com" || h.endsWith(".tiktok.com")
-    }.getOrDefault(false)
-    private fun isTargetProfile(raw: String): Boolean = runCatching {
-        val t = URL(targetUrl); val c = URL(raw)
-        val th = t.host.removePrefix("www.").lowercase(); val ch = c.host.removePrefix("www.").lowercase()
-        if (ch != th && !ch.endsWith(".$th")) return@runCatching false
-        val tp = t.path.trimEnd('/').lowercase(); val cp = c.path.trimEnd('/').lowercase()
-        cp == tp || cp.startsWith("$tp/")
-    }.getOrDefault(false)
-    private fun isValidVideoLink(raw: String) = if (platform == "instagram") Regex("https?://(?:www\\.)?instagram\\.com/(reel|p)/[A-Za-z0-9_-]+", RegexOption.IGNORE_CASE).containsMatchIn(raw) else Regex("https?://(?:www\\.)?tiktok\\.com/@[^/]+/video/\\d+", RegexOption.IGNORE_CASE).containsMatchIn(raw)
-    private fun platformName() = if (platform == "instagram") "Instagram" else "TikTok"
-    private fun isHttpUrl(raw: String) = raw.startsWith("https://", true) || raw.startsWith("http://", true)
-    private fun normalizeUrl(raw: String): String {
-        val v = raw.trim()
-        return when {
-            v.startsWith("https://", true) || v.startsWith("http://", true) -> v
-            v.startsWith("://") -> "https$v"
-            v.startsWith("//") -> "https:$v"
-            v.startsWith("www.") || v.startsWith("instagram.com", true) || v.startsWith("tiktok.com", true) -> "https://$v"
-            else -> v
-        }
-    }
+    private fun isPlatformHost(raw: String): Boolean = runCatching { val h=URL(raw).host.removePrefix("www.").lowercase(); if(platform=="instagram") h=="instagram.com"||h.endsWith(".instagram.com") else h=="tiktok.com"||h.endsWith(".tiktok.com") }.getOrDefault(false)
+    private fun isTargetProfile(raw: String): Boolean = runCatching { val t=URL(targetUrl);val c=URL(raw);val th=t.host.removePrefix("www.").lowercase();val ch=c.host.removePrefix("www.").lowercase();if(ch!=th&&!ch.endsWith(".$th")) return@runCatching false;val tp=t.path.trimEnd('/').lowercase();val cp=c.path.trimEnd('/').lowercase();cp==tp||cp.startsWith("$tp/") }.getOrDefault(false)
+    private fun isValidVideoLink(raw: String)=if(platform=="instagram") Regex("https?://(?:www\\.)?instagram\\.com/(reel|p)/[A-Za-z0-9_-]+",RegexOption.IGNORE_CASE).containsMatchIn(raw) else Regex("https?://(?:www\\.)?tiktok\\.com/@[^/]+/video/\\d+",RegexOption.IGNORE_CASE).containsMatchIn(raw)
+    private fun platformName()=if(platform=="instagram") "Instagram" else "TikTok"
+    private fun isHttpUrl(raw:String)=raw.startsWith("https://",true)||raw.startsWith("http://",true)
+    private fun normalizeUrl(raw:String):String{val v=raw.trim();return when{v.startsWith("https://",true)||v.startsWith("http://",true)->v;v.startsWith("://")->"https$v";v.startsWith("//")->"https:$v";v.startsWith("www.")||v.startsWith("instagram.com",true)||v.startsWith("tiktok.com",true)->"https://$v";else->v}}
 
-    internal fun cancelFromEngine() = completeAndFinish()
-    private fun completeAndFinish() {
-        if (finished) return
-        finished = true
-        handler.removeCallbacksAndMessages(null)
-        CookieManager.getInstance().flush()
-        PublicProfileBrowserScanner.complete(requestId, found.toList())
-        if (::webView.isInitialized) {
-            runCatching { webView.stopLoading() }
-            runCatching { webView.destroy() }
-        }
-        finish()
-    }
-    override fun onBackPressed() { completeAndFinish() }
-    override fun onDestroy() {
-        PublicProfileBrowserScanner.detach(this)
-        if (!finished) PublicProfileBrowserScanner.complete(requestId, found.toList())
-        handler.removeCallbacksAndMessages(null)
-        if (::webView.isInitialized) runCatching { webView.destroy() }
-        super.onDestroy()
-    }
+    internal fun cancelFromEngine()=completeAndFinish()
+    private fun completeAndFinish(){if(finished)return;finished=true;handler.removeCallbacksAndMessages(null);CookieManager.getInstance().flush();PublicProfileBrowserScanner.complete(requestId,found.toList());if(::webView.isInitialized){runCatching{webView.stopLoading()};runCatching{webView.destroy()}};finish()}
+    override fun onBackPressed(){completeAndFinish()}
+    override fun onDestroy(){PublicProfileBrowserScanner.detach(this);if(!finished)PublicProfileBrowserScanner.complete(requestId,found.toList());handler.removeCallbacksAndMessages(null);if(::webView.isInitialized)runCatching{webView.destroy()};super.onDestroy()}
 }
