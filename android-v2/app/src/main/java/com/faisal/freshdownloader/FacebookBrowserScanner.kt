@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.ViewGroup
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.LinearLayout
@@ -111,15 +112,28 @@ class FacebookScanActivity : Activity() {
             settings.userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
             setBackgroundColor(Color.rgb(13, 23, 40))
             webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                    val target = request?.url?.toString().orEmpty()
+                    if (isLoginUrl(target)) {
+                        stopForLoginWall()
+                        return true
+                    }
+                    return false
+                }
+
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     if (finished) return
                     val current = normalizeUrl(url.orEmpty())
+                    if (isLoginUrl(current)) {
+                        stopForLoginWall()
+                        return
+                    }
                     addFacebookVariants(current)
                     val generation = ++pageGeneration
                     scanAttempt = 0
-                    statusView.text = "Scanning visible public links…"
-                    handler.postDelayed({ scanDom(generation) }, 900)
+                    statusView.text = "Checking guest access…"
+                    detectLoginWall(generation)
                 }
             }
         }
@@ -135,6 +149,35 @@ class FacebookScanActivity : Activity() {
 
         setContentView(root)
         loadNextCandidate()
+    }
+
+    private fun detectLoginWall(generation: Int) {
+        if (finished || generation != pageGeneration) return
+        val script = """
+            (function() {
+              try {
+                const href = (location.href || '').toLowerCase();
+                if (href.includes('/login') || href.includes('checkpoint') || href.includes('login.php')) return 'LOGIN';
+                const hasPass = !!document.querySelector('input[type="password"], input[name="pass"]');
+                const hasEmail = !!document.querySelector('input[name="email"], input[type="email"]');
+                const hasLoginForm = !!document.querySelector('form[action*="login"], form[id*="login"], form[data-sigil*="login"]');
+                const text = ((document.body && document.body.innerText) || '').toLowerCase();
+                const loginText = text.includes('log in to facebook') || text.includes('login to facebook') || text.includes('you must log in') || text.includes('please log in');
+                return ((hasPass && hasEmail) || hasLoginForm || loginText) ? 'LOGIN' : 'OK';
+              } catch (e) { return 'OK'; }
+            })();
+        """.trimIndent()
+
+        webView.evaluateJavascript(script) { raw ->
+            if (finished || generation != pageGeneration) return@evaluateJavascript
+            val decoded = runCatching { JSONTokener(raw).nextValue() as? String }.getOrNull().orEmpty()
+            if (decoded.equals("LOGIN", ignoreCase = true)) {
+                stopForLoginWall()
+            } else {
+                statusView.text = "Scanning visible public links…"
+                handler.postDelayed({ scanDom(generation) }, 700)
+            }
+        }
     }
 
     private fun scanDom(generation: Int) {
@@ -160,14 +203,14 @@ class FacebookScanActivity : Activity() {
 
             scanAttempt++
             statusView.text = if (found.isEmpty()) {
-                "Scanning page… ${scanAttempt}/10"
+                "Scanning page… ${scanAttempt}/8"
             } else {
                 "Found ${found.size} public videos…"
             }
 
-            if (scanAttempt < 10 && found.size < 300) {
+            if (scanAttempt < 8 && found.size < 300) {
                 webView.evaluateJavascript("window.scrollBy(0, Math.max(window.innerHeight * 1.8, 1100));", null)
-                handler.postDelayed({ scanDom(generation) }, 900)
+                handler.postDelayed({ scanDom(generation) }, 850)
             } else if (found.isNotEmpty()) {
                 completeAndFinish()
             } else {
@@ -183,11 +226,16 @@ class FacebookScanActivity : Activity() {
             completeAndFinish()
             return
         }
+        if (isLoginUrl(next)) {
+            stopForLoginWall()
+            return
+        }
         statusView.text = "Opening public Facebook page…"
         webView.loadUrl(next)
     }
 
     private fun addFacebookVariants(raw: String) {
+        if (isLoginUrl(raw)) return
         val base = facebookBase(raw) ?: return
         val variants = listOf(
             "$base/reels/",
@@ -200,6 +248,20 @@ class FacebookScanActivity : Activity() {
         }
     }
 
+    private fun stopForLoginWall() {
+        if (finished) return
+        statusView.text = "Facebook requires login for this Page/Profile. Guest scan stopped."
+        handler.postDelayed({ completeAndFinish() }, 450)
+    }
+
+    private fun isLoginUrl(raw: String): Boolean {
+        val value = raw.lowercase()
+        return "facebook.com/login" in value ||
+            "/login.php" in value ||
+            "checkpoint" in value ||
+            "recover/initiate" in value
+    }
+
     private fun webViewUrlSafe(): String? = if (::webView.isInitialized) webView.url else null
 
     private fun facebookBase(raw: String): String? {
@@ -209,7 +271,7 @@ class FacebookScanActivity : Activity() {
             if (!uri.host.orEmpty().contains("facebook.com", ignoreCase = true)) return@runCatching null
             var path = uri.path.orEmpty().trimEnd('/')
             path = path.replace(Regex("/(reels|videos)$", RegexOption.IGNORE_CASE), "")
-            if (path.isBlank() || path == "/" || path.startsWith("/share/")) return@runCatching null
+            if (path.isBlank() || path == "/" || path.startsWith("/share/") || path.startsWith("/login")) return@runCatching null
             "https://www.facebook.com$path"
         }.getOrNull()
     }
