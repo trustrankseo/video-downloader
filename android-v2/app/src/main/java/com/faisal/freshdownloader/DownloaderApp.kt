@@ -1,10 +1,10 @@
 package com.faisal.freshdownloader
 
 import android.app.Application
+import com.yausername.aria2c.Aria2c
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLException
-import com.yausername.youtubedl_android.aria2c.Aria2c
 
 class DownloaderApp : Application() {
     override fun onCreate() {
