@@ -73,8 +73,51 @@ jobs:
           }'''
           if old in s:
               s = s.replace(old, new, 1)
-
           p.write_text(s)
+
+          # Persist the manually authenticated WebView session as an app-private
+          # Netscape cookie jar and let yt-dlp consume it with --cookies.
+          # Values never leave the device and are never logged or committed.
+          e = Path('app/src/main/java/com/faisal/freshdownloader/DownloaderEngine.kt')
+          t = e.read_text()
+          old = '''    private fun applySessionCookie(request: YoutubeDLRequest, rootUrl: String) {
+        val cookie = runCatching { CookieManager.getInstance().getCookie(rootUrl) }.getOrNull()
+        if (!cookie.isNullOrBlank()) {
+            request.addOption("--add-header", "Cookie: $cookie")
+        }
+    }
+'''
+          new = '''    private fun applySessionCookie(request: YoutubeDLRequest, rootUrl: String) {
+        val rawCookie = runCatching { CookieManager.getInstance().getCookie(rootUrl) }.getOrNull()
+        if (rawCookie.isNullOrBlank()) return
+
+        val host = runCatching { URL(rootUrl).host.lowercase() }.getOrNull() ?: return
+        val domain = if (host.startsWith("www.")) "." + host.removePrefix("www.") else "." + host
+        val safeName = host.replace(Regex("[^a-z0-9.-]"), "_")
+        val cookieFile = File(context.filesDir, "session-$safeName.cookies.txt")
+
+        val lines = mutableListOf("# Netscape HTTP Cookie File")
+        rawCookie.split(';').forEach { part ->
+            val pair = part.trim()
+            val eq = pair.indexOf('=')
+            if (eq <= 0) return@forEach
+            val name = pair.substring(0, eq).trim()
+            val value = pair.substring(eq + 1).trim()
+            if (name.isBlank()) return@forEach
+            lines += listOf(domain, "TRUE", "/", "TRUE", "0", name, value).joinToString("\\t")
+        }
+        if (lines.size <= 1) return
+
+        runCatching {
+            cookieFile.writeText(lines.joinToString("\\n", postfix = "\\n"))
+            request.addOption("--cookies", cookieFile.absolutePath)
+        }
+    }
+'''
+          if old not in t:
+              raise SystemExit('applySessionCookie patch target not found')
+          t = t.replace(old, new, 1)
+          e.write_text(t)
           PY
       - run: gradle :app:assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
