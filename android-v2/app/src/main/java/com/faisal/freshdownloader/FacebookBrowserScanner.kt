@@ -131,7 +131,7 @@ class FacebookScanActivity : Activity() {
                     }
 
                     if (isLoginUrl(target)) {
-                        stopForLoginWall()
+                        collectVisibleLinksThenStop()
                         return true
                     }
                     return false
@@ -163,14 +163,14 @@ class FacebookScanActivity : Activity() {
                         return
                     }
                     if (isLoginUrl(current)) {
-                        stopForLoginWall()
+                        collectVisibleLinksThenStop()
                         return
                     }
                     addFacebookVariants(current)
                     val generation = ++pageGeneration
                     scanAttempt = 0
                     statusView.text = "Checking guest access…"
-                    detectLoginWall(generation)
+                    handler.postDelayed({ detectLoginWall(generation) }, 450)
                 }
             }
         }
@@ -199,7 +199,15 @@ class FacebookScanActivity : Activity() {
                 const hasEmail = !!document.querySelector('input[name="email"], input[type="email"]');
                 const hasLoginForm = !!document.querySelector('form[action*="login"], form[id*="login"], form[data-sigil*="login"]');
                 const text = ((document.body && document.body.innerText) || '').toLowerCase();
-                const loginText = text.includes('log in to facebook') || text.includes('login to facebook') || text.includes('you must log in') || text.includes('please log in');
+                const exactLoginButton = Array.from(document.querySelectorAll('a,button,[role="button"]'))
+                  .some(el => ((el.innerText || el.textContent || '').trim().toLowerCase() === 'log in'));
+                const loginText =
+                  text.includes('log in to facebook') ||
+                  text.includes('login to facebook') ||
+                  text.includes('you must log in') ||
+                  text.includes('please log in') ||
+                  text.includes('log in to get all of the details') ||
+                  (text.includes('see more from') && exactLoginButton);
                 return ((hasPass && hasEmail) || hasLoginForm || loginText) ? 'LOGIN' : 'OK';
               } catch (e) { return 'OK'; }
             })();
@@ -209,10 +217,10 @@ class FacebookScanActivity : Activity() {
             if (finished || generation != pageGeneration) return@evaluateJavascript
             val decoded = runCatching { JSONTokener(raw).nextValue() as? String }.getOrNull().orEmpty()
             if (decoded.equals("LOGIN", ignoreCase = true)) {
-                stopForLoginWall()
+                collectVisibleLinksThenStop()
             } else {
                 statusView.text = "Scanning visible public links…"
-                handler.postDelayed({ scanDom(generation) }, 700)
+                handler.postDelayed({ scanDom(generation) }, 500)
             }
         }
     }
@@ -222,21 +230,49 @@ class FacebookScanActivity : Activity() {
         val script = """
             (function() {
               try {
+                const text = ((document.body && document.body.innerText) || '').toLowerCase();
+                const exactLoginButton = Array.from(document.querySelectorAll('a,button,[role="button"]'))
+                  .some(el => ((el.innerText || el.textContent || '').trim().toLowerCase() === 'log in'));
+                const loginWall =
+                  text.includes('log in to get all of the details') ||
+                  text.includes('log in to facebook') ||
+                  text.includes('login to facebook') ||
+                  (text.includes('see more from') && exactLoginButton) ||
+                  !!document.querySelector('input[type="password"], input[name="pass"], form[action*="login"]');
+
                 const links = Array.from(document.querySelectorAll('a[href]'))
                   .map(a => a.href || '')
-                  .filter(h => /facebook\\.com\\/(reel\\/\\d+|[^/?#]+\\/videos\\/\\d+|watch\\/?\\?v=\\d+)/i.test(h));
-                return Array.from(new Set(links)).join('\\n');
-              } catch (e) { return ''; }
+                  .filter(h => {
+                    const x = h.toLowerCase();
+                    return x.includes('facebook.com/reel/') ||
+                           /facebook\.com\/[^/?#]+\/videos\//i.test(h) ||
+                           /facebook\.com\/watch\/?\?v=/i.test(h) ||
+                           /facebook\.com\/share\/[rv]\//i.test(h);
+                  });
+                return (loginWall ? 'LOGIN' : 'OK') + '\\n' + Array.from(new Set(links)).join('\\n');
+              } catch (e) { return 'OK\\n'; }
             })();
         """.trimIndent()
 
         webView.evaluateJavascript(script) { raw ->
             if (finished || generation != pageGeneration) return@evaluateJavascript
             val decoded = runCatching { JSONTokener(raw).nextValue() as? String }.getOrNull().orEmpty()
-            decoded.lineSequence()
+            val lines = decoded.lineSequence().toList()
+            val loginWall = lines.firstOrNull().equals("LOGIN", ignoreCase = true)
+            lines.drop(1)
                 .map { it.trim() }
                 .filter { it.startsWith("https://") && "facebook.com" in it.lowercase() }
                 .forEach { found += cleanFacebookVideoUrl(it) }
+
+            if (loginWall) {
+                statusView.text = if (found.isNotEmpty()) {
+                    "Facebook guest limit reached. Found ${found.size} visible public videos."
+                } else {
+                    "Facebook requires login for more Page/Profile content. Guest scan stopped."
+                }
+                handler.postDelayed({ completeAndFinish() }, 350)
+                return@evaluateJavascript
+            }
 
             scanAttempt++
             statusView.text = if (found.isEmpty()) {
@@ -256,6 +292,45 @@ class FacebookScanActivity : Activity() {
         }
     }
 
+    private fun collectVisibleLinksThenStop() {
+        if (finished || !::webView.isInitialized) return
+        val generation = ++pageGeneration
+        scanAttempt = 0
+        statusView.text = "Facebook login wall detected. Collecting visible public links once…"
+        val script = """
+            (function() {
+              try {
+                const links = Array.from(document.querySelectorAll('a[href]'))
+                  .map(a => a.href || '')
+                  .filter(h => {
+                    const x = h.toLowerCase();
+                    return x.includes('facebook.com/reel/') ||
+                           /facebook\.com\/[^/?#]+\/videos\//i.test(h) ||
+                           /facebook\.com\/watch\/?\?v=/i.test(h) ||
+                           /facebook\.com\/share\/[rv]\//i.test(h);
+                  });
+                return Array.from(new Set(links)).join('\\n');
+              } catch (e) { return ''; }
+            })();
+        """.trimIndent()
+
+        webView.evaluateJavascript(script) { raw ->
+            if (finished || generation != pageGeneration) return@evaluateJavascript
+            val decoded = runCatching { JSONTokener(raw).nextValue() as? String }.getOrNull().orEmpty()
+            decoded.lineSequence()
+                .map { it.trim() }
+                .filter { it.startsWith("https://") && "facebook.com" in it.lowercase() }
+                .forEach { found += cleanFacebookVideoUrl(it) }
+
+            statusView.text = if (found.isNotEmpty()) {
+                "Found ${found.size} visible public videos before Facebook login wall."
+            } else {
+                "Facebook requires login for this Page/Profile. Guest scan stopped."
+            }
+            handler.postDelayed({ completeAndFinish() }, 350)
+        }
+    }
+
     private fun loadNextCandidate() {
         if (finished) return
         var next = candidates.removeFirstOrNull()
@@ -267,7 +342,7 @@ class FacebookScanActivity : Activity() {
             return
         }
         if (isLoginUrl(next)) {
-            stopForLoginWall()
+            collectVisibleLinksThenStop()
             return
         }
         statusView.text = "Opening public Facebook page…"
