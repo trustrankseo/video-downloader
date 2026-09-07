@@ -27,7 +27,7 @@ class TikTokNativeDownloader(
 
         val mediaUrl = extractMediaUrl(page)
             ?: throw IllegalStateException(
-                "TIKTOK_MEDIA_URL_NOT_FOUND: TikTok did not expose a playable MP4 URL to the signed-in session."
+                "TIKTOK_MEDIA_URL_NOT_FOUND: TikTok page loaded, but no playable MP4 address was present in the returned page data."
             )
 
         val videoId = Regex("/video/(\\d+)", RegexOption.IGNORE_CASE)
@@ -128,20 +128,31 @@ class TikTokNativeDownloader(
             .replace("\\u002F", "/", ignoreCase = true)
             .replace("\\u0026", "&", ignoreCase = true)
             .replace("\\u003A", ":", ignoreCase = true)
+            .replace("\\u003D", "=", ignoreCase = true)
             .replace("\\/", "/")
 
+        // TikTok currently uses more than one hydration schema. In newer web payloads
+        // playAddr/downloadAddr may be arrays instead of a single string.
         val patterns = listOf(
+            Regex("\\\"playAddr\\\"\\s*:\\s*\\[\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
+            Regex("\\\"downloadAddr\\\"\\s*:\\s*\\[\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
             Regex("\\\"playAddr\\\"\\s*:\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
             Regex("\\\"downloadAddr\\\"\\s*:\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
-            Regex("\\\"play_addr\\\"[\\s\\S]{0,1200}?\\\"url_list\\\"\\s*:\\s*\\[\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
-            Regex("\\\"playAddr\\\"[\\s\\S]{0,1200}?\\\"urlList\\\"\\s*:\\s*\\[\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
-            Regex("\\\"playAddr\\\"[\\s\\S]{0,1200}?\\\"src\\\"\\s*:\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
-            Regex("<video[^>]+src=[\\\"'](https?://[^\\\"']+)[\\\"']", RegexOption.IGNORE_CASE)
+            Regex("\\\"play_addr\\\"[\\s\\S]{0,2000}?\\\"url_list\\\"\\s*:\\s*\\[\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
+            Regex("\\\"playAddr\\\"[\\s\\S]{0,2000}?\\\"urlList\\\"\\s*:\\s*\\[\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
+            Regex("\\\"PlayAddr\\\"[\\s\\S]{0,2000}?\\\"UrlList\\\"\\s*:\\s*\\[\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
+            Regex("\\\"playAddr\\\"[\\s\\S]{0,2000}?\\\"src\\\"\\s*:\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
+            Regex("<video[^>]+src=[\\\"'](https?://[^\\\"']+)[\\\"']", RegexOption.IGNORE_CASE),
+            Regex("(https?://[^\\\"'<>\\s]+(?:mime_type=video_mp4|mime_type=video%2Fmp4)[^\\\"'<>\\s]*)", RegexOption.IGNORE_CASE),
+            Regex("(https?://[^\\\"'<>\\s]*(?:tiktokcdn|byteoversea|ibytedtos)[^\\\"'<>\\s]*/video/[^\\\"'<>\\s]+)", RegexOption.IGNORE_CASE)
         )
 
         for (pattern in patterns) {
             val candidate = pattern.find(html)?.groupValues?.getOrNull(1)?.trim()
-            if (!candidate.isNullOrBlank()) return decodeUrl(candidate)
+            if (!candidate.isNullOrBlank()) {
+                val decoded = decodeUrl(candidate)
+                if (decoded.startsWith("http://") || decoded.startsWith("https://")) return decoded
+            }
         }
         return null
     }
