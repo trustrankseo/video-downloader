@@ -44,8 +44,6 @@ object PublicProfileBrowserScanner {
         }
         context.startActivity(intent)
 
-        // Give the user enough time to complete an official Instagram/TikTok sign-in.
-        // No credentials are read by this app. Only the platform WebView session persists.
         val result = withTimeoutOrNull(180_000) { deferred.await() }.orEmpty()
         pending.remove(requestId)
         return result
@@ -141,15 +139,13 @@ class PublicProfileScanActivity : Activity() {
             settings.userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
             setBackgroundColor(Color.rgb(13, 23, 40))
 
-            CookieManager.getInstance().apply {
-                setAcceptCookie(true)
-                setAcceptThirdPartyCookies(this@apply as? WebView ?: return@apply, true)
-            }
+            val cookieManager = CookieManager.getInstance()
+            cookieManager.setAcceptCookie(true)
+            cookieManager.setAcceptThirdPartyCookies(this, true)
 
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val scheme = request?.url?.scheme?.lowercase().orEmpty()
-                    // Block app-only/deep-link schemes. Official https login pages remain inside WebView.
                     return scheme.isNotBlank() && scheme != "http" && scheme != "https"
                 }
 
@@ -159,6 +155,7 @@ class PublicProfileScanActivity : Activity() {
                     val current = url.orEmpty()
                     if (!isHttpUrl(current)) return
 
+                    CookieManager.getInstance().flush()
                     generation++
                     scanAttempt = 0
                     noGrowthRounds = 0
@@ -194,6 +191,7 @@ class PublicProfileScanActivity : Activity() {
                 found.clear()
                 statusView.text = "Loading profile with your ${platformName()} session…"
                 visibility = View.GONE
+                CookieManager.getInstance().flush()
                 webView.loadUrl(targetUrl)
             }
         }
@@ -210,7 +208,7 @@ class PublicProfileScanActivity : Activity() {
         })
 
         val note = TextView(this).apply {
-            text = "Sign-in happens on the official ${platformName()} webpage. Universal Downloader does not read or store your password. The WebView session may stay signed in until the platform expires it."
+            text = "Sign-in happens on the official ${platformName()} webpage. Universal Downloader does not read or store your password. The browser session can remain signed in until the platform expires it."
             textSize = 12f
             setTextColor(Color.rgb(85, 221, 247))
             setPadding(0, 12, 0, 0)
@@ -314,7 +312,9 @@ class PublicProfileScanActivity : Activity() {
         return runCatching {
             val target = URL(targetUrl)
             val current = URL(raw)
-            if (!current.host.contains(target.host.substringAfterLast("."), ignoreCase = true)) return@runCatching false
+            val targetHost = target.host.removePrefix("www.").lowercase()
+            val currentHost = current.host.removePrefix("www.").lowercase()
+            if (currentHost != targetHost && !currentHost.endsWith(".$targetHost")) return@runCatching false
             val targetPath = target.path.trimEnd('/').lowercase()
             val currentPath = current.path.trimEnd('/').lowercase()
             currentPath == targetPath || currentPath.startsWith("$targetPath/")
