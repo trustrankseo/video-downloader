@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import concurrent.futures
-import base64
 import os
 import re
 import json
 import hashlib
+import hmac
 import random
 import shutil
 import subprocess
@@ -26,12 +26,10 @@ import sv_ttk
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 
 APP_TITLE = "Video Downloader by Zubair Abbas"
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.2"
 GITHUB_REPOSITORY = "trustrankseo/video-downloader"
 GITHUB_LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 DOWNLOAD_DIR = Path.home() / "Downloads" / "VideoDownloaderByZubairAbbas"
@@ -42,7 +40,7 @@ HISTORY_FILE = APP_DATA_DIR / "download_history.jsonl"
 DIAGNOSTICS_DIR = APP_DATA_DIR / "diagnostics"
 YTDLP_UPDATE_DIR = APP_DATA_DIR / "yt_dlp_runtime"
 LICENSE_FILE = Path(os.environ.get("APPDATA", str(APP_DATA_DIR))) / "VideoDownloaderByZA" / ".license.dat"
-LICENSE_PUBLIC_KEY = "C3LIUVvcnsBkHb9_70acnssOJO2BcGlkYzy8nWsZ0Q0="
+LICENSE_SECRET_KEY = "ZA-VD-2026-X9k$mP#qR7vL@wT2nJ5bY8cF3hD6gA1eS4uN0iO"
 URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 DEFAULT_API_URL = "http://127.0.0.1:5000"
 APIFY_TIKTOK_ACTOR_ENDPOINT = (
@@ -209,43 +207,71 @@ def get_hardware_id() -> str:
     return normalise_hardware_id(hashlib.sha256(source.encode("utf-8")).hexdigest().upper()[:32])
 
 
-def _decode_license_part(value: str) -> bytes:
-    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
-
-
 def validate_license_key(key: str) -> tuple[bool, str, str]:
-    try:
-        prefix, payload_token, signature_token = key.strip().split(".")
-        if prefix != "VDZA2":
-            raise ValueError
-        payload_bytes = _decode_license_part(payload_token)
-        signature = _decode_license_part(signature_token)
-        public_bytes = base64.urlsafe_b64decode(LICENSE_PUBLIC_KEY)
-        Ed25519PublicKey.from_public_bytes(public_bytes).verify(signature, payload_bytes)
-        payload = json.loads(payload_bytes.decode("utf-8"))
-        if payload.get("v") != 2 or normalise_hardware_id(str(payload.get("hw", ""))) != get_hardware_id():
-            return False, "This license belongs to a different computer.", ""
-        expiry = str(payload.get("exp", ""))
-        if expiry == "LIFE":
-            return True, "Lifetime license", expiry
-        expires_on = datetime.strptime(expiry, "%Y%m%d").date()
+    key = key.strip().upper()
+    hardware_id = get_hardware_id()
+    parts = key.split("-")
+    if not hardware_id or not parts or parts[0] != "VDZA":
+        return False, "Invalid license key.", ""
+    if len(parts) == 6:
+        if any(len(part) != 4 for part in parts[1:5]) or len(parts[5]) != 8:
+            return False, "Invalid license key.", ""
+        key_body = "-".join(parts[1:5])
+        sign_data = f"VDZA-{key_body}|standard|never|{hardware_id}"
+        expected = hmac.new(LICENSE_SECRET_KEY.encode("utf-8"), sign_data.encode("utf-8"), hashlib.sha256).hexdigest()[:8].upper()
+        if hmac.compare_digest(expected, parts[5]):
+            return True, "Lifetime license", "LIFE"
+        return False, "This key is invalid or belongs to a different computer.", ""
+    if len(parts) != 7 or any(len(part) != 4 for part in parts[1:5]) or len(parts[6]) != 8:
+        return False, "Invalid license key.", ""
+    key_body = "-".join(parts[1:5])
+    expiry = parts[5]
+    if expiry == "LIFE":
+        expires_on = None
+    elif len(expiry) == 8 and expiry.isdigit():
+        try:
+            expires_on = datetime.strptime(expiry, "%Y%m%d").date()
+        except ValueError:
+            return False, "Invalid expiry date in the license key.", ""
         if date.today() > expires_on:
             return False, f"License expired on {expires_on.isoformat()}.", expiry
+    else:
+        return False, "Invalid expiry date in the license key.", ""
+    sign_data = f"VDZA-{key_body}|{expiry}|{hardware_id}"
+    expected = hmac.new(LICENSE_SECRET_KEY.encode("utf-8"), sign_data.encode("utf-8"), hashlib.sha256).hexdigest()[:8].upper()
+    if not hmac.compare_digest(expected, parts[6]):
+        return False, "This key is invalid or belongs to a different computer.", ""
+    if expires_on:
         return True, f"License valid until {expires_on.isoformat()}", expiry
-    except (ValueError, KeyError, TypeError, InvalidSignature, json.JSONDecodeError):
-        return False, "Invalid license key.", ""
-    except Exception:
-        return False, "License verification failed.", ""
+    return True, "Lifetime license", expiry
 
 
 def save_license_key(key: str) -> None:
     LICENSE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    LICENSE_FILE.write_text(json.dumps({"key": key.strip()}), encoding="utf-8")
+    hardware_id = get_hardware_id()
+    key = key.strip().upper()
+    data = {
+        "k": key,
+        "h": hardware_id,
+        "t": datetime.now().isoformat(),
+        "v": hmac.new(LICENSE_SECRET_KEY.encode("utf-8"), f"{key}|{hardware_id}".encode("utf-8"), hashlib.sha256).hexdigest(),
+    }
+    raw = json.dumps(data).encode("utf-8")
+    obfuscation_key = b"ZubairAbbasVD2026"
+    LICENSE_FILE.write_bytes(bytes(value ^ obfuscation_key[index % len(obfuscation_key)] for index, value in enumerate(raw)))
 
 
 def load_valid_license() -> tuple[bool, str, str]:
     try:
-        key = str(json.loads(LICENSE_FILE.read_text(encoding="utf-8")).get("key", ""))
+        obfuscation_key = b"ZubairAbbasVD2026"
+        encrypted = LICENSE_FILE.read_bytes()
+        raw = bytes(value ^ obfuscation_key[index % len(obfuscation_key)] for index, value in enumerate(encrypted))
+        data = json.loads(raw.decode("utf-8"))
+        key = str(data.get("k", ""))
+        hardware_id = str(data.get("h", ""))
+        expected = hmac.new(LICENSE_SECRET_KEY.encode("utf-8"), f"{key}|{hardware_id}".encode("utf-8"), hashlib.sha256).hexdigest()
+        if hardware_id != get_hardware_id() or not hmac.compare_digest(str(data.get("v", "")), expected):
+            return False, "License activation is required.", ""
     except Exception:
         return False, "License activation is required.", ""
     return validate_license_key(key)
