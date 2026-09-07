@@ -51,9 +51,10 @@ class DownloaderEngine(private val context: Context) {
         onProgress: (Float, Long) -> Unit
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val targetUrl = if (isFacebookUrl(url) && url.contains("/share/", ignoreCase = true)) {
-                resolveRedirectUrl(url)
-            } else url
+            val normalized = normalizeInputUrl(url)
+            val targetUrl = if (isFacebookUrl(normalized) && normalized.contains("/share/", ignoreCase = true)) {
+                resolveRedirectUrl(normalized)
+            } else normalized
 
             val request = YoutubeDLRequest(targetUrl)
             request.addOption("--no-playlist")
@@ -97,24 +98,28 @@ class DownloaderEngine(private val context: Context) {
         }
     }
 
-    suspend fun discoverCollection(url: String): Result<List<String>> = withContext(Dispatchers.IO) {
-        val targetUrl = if (isFacebookUrl(url) && url.contains("/share/", ignoreCase = true)) {
-            runCatching { resolveRedirectUrl(url) }.getOrDefault(url)
-        } else url
+    suspend fun discoverCollection(url: String): Result<List<String>> {
+        val normalized = normalizeInputUrl(url)
+        val targetUrl = if (isFacebookUrl(normalized) && normalized.contains("/share/", ignoreCase = true)) {
+            runCatching { resolveRedirectUrl(normalized) }.getOrDefault(normalized)
+        } else normalized
 
-        val ytAttempt = runCatching { discoverWithYtDlp(targetUrl) }
+        val ytAttempt = withContext(Dispatchers.IO) { runCatching { discoverWithYtDlp(targetUrl) } }
         val ytUrls = ytAttempt.getOrDefault(emptyList())
-        if (ytUrls.isNotEmpty()) {
-            return@withContext Result.success(ytUrls)
-        }
+        if (ytUrls.isNotEmpty()) return Result.success(ytUrls)
 
-        if (isFacebookUrl(targetUrl) || isFacebookUrl(url)) {
-            val fallback = runCatching { discoverFacebookPublicProfile(targetUrl) }
-                .getOrDefault(emptyList())
-
-            if (fallback.isNotEmpty()) {
-                return@withContext Result.success(fallback)
+        if (isFacebookUrl(targetUrl) || isFacebookUrl(normalized)) {
+            val httpFallback = withContext(Dispatchers.IO) {
+                runCatching { discoverFacebookPublicProfile(targetUrl) }.getOrDefault(emptyList())
             }
+            if (httpFallback.isNotEmpty()) return Result.success(httpFallback)
+
+            // Final guest-mode fallback: open a visible Android WebView and collect only
+            // public reel/video links Facebook actually renders to a signed-out browser.
+            val webViewFallback = runCatching {
+                FacebookBrowserScanner.scan(context, targetUrl)
+            }.getOrDefault(emptyList())
+            if (webViewFallback.isNotEmpty()) return Result.success(webViewFallback)
 
             val detail = ytAttempt.exceptionOrNull()?.message.orEmpty()
                 .lineSequence()
@@ -122,17 +127,16 @@ class DownloaderEngine(private val context: Context) {
                 .orEmpty()
                 .take(140)
 
-            return@withContext Result.failure(
+            return Result.failure(
                 IllegalStateException(
-                    "FACEBOOK_PUBLIC_PROFILE_UNAVAILABLE: Facebook redirected this link to a Page/Profile, " +
-                        "but its public Reels/Videos list was not exposed to guest mode. " +
-                        "Try the page's Reels/Videos tab URL or direct public reel/video links." +
+                    "FACEBOOK_PUBLIC_PROFILE_UNAVAILABLE: Facebook did not expose any Page/Profile Reels or Videos to signed-out guest mode. " +
+                        "Direct public reel/video links can still be downloaded in Single or Bulk mode." +
                         if (detail.isBlank()) "" else " ($detail)"
                 )
             )
         }
 
-        ytAttempt
+        return ytAttempt
     }
 
     private fun discoverWithYtDlp(url: String): List<String> {
@@ -163,21 +167,23 @@ class DownloaderEngine(private val context: Context) {
     }
 
     private fun discoverFacebookPublicProfile(url: String): List<String> {
-        val clean = url.substringBefore('#').substringBefore('?').trimEnd('/')
+        val clean = normalizeInputUrl(url).substringBefore('#').substringBefore('?').trimEnd('/')
         val candidates = linkedSetOf(
-            url,
+            clean,
             "$clean?sk=reels_tab",
             "$clean/reels/",
-            "$clean/videos/"
+            "$clean/videos/",
+            clean.replace("www.facebook.com", "m.facebook.com") + "/reels/",
+            clean.replace("www.facebook.com", "m.facebook.com") + "/videos/"
         )
 
         val found = linkedSetOf<String>()
         for (candidate in candidates) {
             val html = runCatching { fetchPublicHtml(candidate) }.getOrNull() ?: continue
             found += extractFacebookVideoUrls(html)
-            if (found.size >= 200) break
+            if (found.size >= 300) break
         }
-        return found.take(200)
+        return found.take(300)
     }
 
     private fun extractFacebookVideoUrls(rawHtml: String): List<String> {
@@ -192,11 +198,11 @@ class DownloaderEngine(private val context: Context) {
         val out = linkedSetOf<String>()
 
         val absolutePatterns = listOf(
-            Regex("https?://(?:www\\.)?facebook\\.com/reel/\\d+[^\\\"'<>\\s]*", RegexOption.IGNORE_CASE),
-            Regex("https?://(?:www\\.)?facebook\\.com/[^\\\"'<>\\s]+/videos/\\d+[^\\\"'<>\\s]*", RegexOption.IGNORE_CASE),
-            Regex("https?://(?:www\\.)?facebook\\.com/watch/\\?v=\\d+[^\\\"'<>\\s]*", RegexOption.IGNORE_CASE)
+            Regex("https?://(?:www\\.|m\\.)?facebook\\.com/reel/\\d+[^\\\"'<>\\s]*", RegexOption.IGNORE_CASE),
+            Regex("https?://(?:www\\.|m\\.)?facebook\\.com/[^\\\"'<>\\s]+/videos/\\d+[^\\\"'<>\\s]*", RegexOption.IGNORE_CASE),
+            Regex("https?://(?:www\\.|m\\.)?facebook\\.com/watch/\\?v=\\d+[^\\\"'<>\\s]*", RegexOption.IGNORE_CASE)
         )
-        absolutePatterns.forEach { regex -> regex.findAll(html).forEach { out += it.value } }
+        absolutePatterns.forEach { regex -> regex.findAll(html).forEach { out += it.value.replace("m.facebook.com", "www.facebook.com") } }
 
         val relativePattern = Regex(
             "href=[\\\"']([^\\\"']*(?:/reel/\\d+|/videos/\\d+|/watch/\\?v=\\d+)[^\\\"']*)[\\\"']",
@@ -222,7 +228,7 @@ class DownloaderEngine(private val context: Context) {
     }
 
     private fun resolveRedirectUrl(input: String): String {
-        var current = if (input.startsWith("http://") || input.startsWith("https://")) input else "https://$input"
+        var current = normalizeInputUrl(input)
 
         repeat(6) {
             val connection = (URL(current).openConnection() as HttpURLConnection).apply {
@@ -271,7 +277,7 @@ class DownloaderEngine(private val context: Context) {
     }
 
     private fun fetchPublicHtml(url: String): String {
-        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+        val connection = (URL(normalizeInputUrl(url)).openConnection() as HttpURLConnection).apply {
             instanceFollowRedirects = true
             connectTimeout = 12_000
             readTimeout = 12_000
@@ -293,8 +299,19 @@ class DownloaderEngine(private val context: Context) {
         }
     }
 
+    private fun normalizeInputUrl(raw: String): String {
+        val value = raw.trim()
+        return when {
+            value.startsWith("https://", true) || value.startsWith("http://", true) -> value
+            value.startsWith("://") -> "https$value"
+            value.startsWith("//") -> "https:$value"
+            value.startsWith("www.") || value.startsWith("facebook.com", true) -> "https://$value"
+            else -> value
+        }
+    }
+
     private fun isFacebookUrl(url: String): Boolean {
-        val lower = url.lowercase()
+        val lower = normalizeInputUrl(url).lowercase()
         return "facebook.com" in lower || "fb.watch" in lower
     }
 
