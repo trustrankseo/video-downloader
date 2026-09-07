@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Environment
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -20,11 +21,9 @@ class DownloaderEngine(private val context: Context) {
         ).apply { mkdirs() }
     }
 
-    @Volatile
-    private var activeProcessId: String? = null
-
-    @Volatile
-    private var activeConnection: HttpURLConnection? = null
+    @Volatile private var activeProcessId: String? = null
+    @Volatile private var activeConnection: HttpURLConnection? = null
+    @Volatile private var cancelRequested = false
 
     private val browserUserAgent =
         "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 " +
@@ -33,6 +32,9 @@ class DownloaderEngine(private val context: Context) {
     fun outputPath(): String = outputDir.absolutePath
 
     fun cancelActive(): Boolean {
+        cancelRequested = true
+        PublicProfileBrowserScanner.cancelActive()
+
         val processId = activeProcessId
         val hadConnection = activeConnection != null
         runCatching { activeConnection?.disconnect() }
@@ -50,11 +52,14 @@ class DownloaderEngine(private val context: Context) {
         format: FormatPreset,
         onProgress: (Float, Long) -> Unit
     ): Result<String> = withContext(Dispatchers.IO) {
+        cancelRequested = false
         runCatching {
             val normalized = normalizeInputUrl(url)
             val targetUrl = if (shouldResolveRedirect(normalized)) {
                 runCatching { resolveRedirectUrl(normalized) }.getOrDefault(normalized)
             } else normalized
+
+            if (cancelRequested) throw CancellationException("Cancelled")
 
             val request = YoutubeDLRequest(targetUrl)
             request.addOption("--no-playlist")
@@ -81,10 +86,7 @@ class DownloaderEngine(private val context: Context) {
             val processId = "dl-${UUID.randomUUID()}"
             activeProcessId = processId
             try {
-                val response = YoutubeDL.getInstance().execute(
-                    request,
-                    processId
-                ) { progress, eta, _ ->
+                val response = YoutubeDL.getInstance().execute(request, processId) { progress, eta, _ ->
                     onProgress(progress, eta)
                 }
                 response.out
@@ -95,12 +97,25 @@ class DownloaderEngine(private val context: Context) {
     }
 
     suspend fun discoverCollection(url: String): Result<List<String>> {
+        cancelRequested = false
         val normalized = normalizeInputUrl(url)
         val targetUrl = if (shouldResolveRedirect(normalized)) {
             runCatching { resolveRedirectUrl(normalized) }.getOrDefault(normalized)
         } else normalized
 
+        if (cancelRequested) return cancelledResult()
+
+        // Profile URLs which commonly require an authenticated browser are sent straight
+        // to the platform WebView. This avoids the long yt-dlp profile-extractor wait.
+        if (isInstagramProfileUrl(targetUrl)) {
+            return discoverSignedInProfile(targetUrl, "instagram")
+        }
+        if (isTikTokProfileUrl(targetUrl)) {
+            return discoverSignedInProfile(targetUrl, "tiktok")
+        }
+
         val ytAttempt = withContext(Dispatchers.IO) { runCatching { discoverWithYtDlp(targetUrl) } }
+        if (cancelRequested) return cancelledResult()
         val ytUrls = ytAttempt.getOrDefault(emptyList())
         if (ytUrls.isNotEmpty()) return Result.success(ytUrls)
 
@@ -108,11 +123,13 @@ class DownloaderEngine(private val context: Context) {
             val httpFallback = withContext(Dispatchers.IO) {
                 runCatching { discoverFacebookPublicProfile(targetUrl) }.getOrDefault(emptyList())
             }
+            if (cancelRequested) return cancelledResult()
             if (httpFallback.isNotEmpty()) return Result.success(httpFallback)
 
             val webViewFallback = runCatching {
                 FacebookBrowserScanner.scan(context, targetUrl)
             }.getOrDefault(emptyList())
+            if (cancelRequested) return cancelledResult()
             if (webViewFallback.isNotEmpty()) return Result.success(webViewFallback)
 
             val detail = firstErrorLine(ytAttempt.exceptionOrNull())
@@ -125,41 +142,22 @@ class DownloaderEngine(private val context: Context) {
             )
         }
 
+        // Non-profile Instagram/TikTok URLs still use the normal extractor.
         if (isInstagramUrl(targetUrl) || isInstagramUrl(normalized)) {
-            val httpFallback = withContext(Dispatchers.IO) {
-                runCatching { discoverSimplePublicProfile(targetUrl, "instagram") }.getOrDefault(emptyList())
-            }
-            if (httpFallback.isNotEmpty()) return Result.success(httpFallback)
-
-            val webFallback = runCatching {
-                PublicProfileBrowserScanner.scan(context, targetUrl, "instagram")
-            }.getOrDefault(emptyList())
-            if (webFallback.isNotEmpty()) return Result.success(webFallback)
-
             val detail = firstErrorLine(ytAttempt.exceptionOrNull())
             return Result.failure(
                 IllegalStateException(
-                    "INSTAGRAM_PUBLIC_PROFILE_UNAVAILABLE: Instagram did not expose public profile posts/reels to signed-out guest mode." +
+                    "INSTAGRAM_ITEM_UNAVAILABLE: Instagram could not expose this item to the downloader." +
                         if (detail.isBlank()) "" else " ($detail)"
                 )
             )
         }
 
         if (isTikTokUrl(targetUrl) || isTikTokUrl(normalized)) {
-            val httpFallback = withContext(Dispatchers.IO) {
-                runCatching { discoverSimplePublicProfile(targetUrl, "tiktok") }.getOrDefault(emptyList())
-            }
-            if (httpFallback.isNotEmpty()) return Result.success(httpFallback)
-
-            val webFallback = runCatching {
-                PublicProfileBrowserScanner.scan(context, targetUrl, "tiktok")
-            }.getOrDefault(emptyList())
-            if (webFallback.isNotEmpty()) return Result.success(webFallback)
-
             val detail = firstErrorLine(ytAttempt.exceptionOrNull())
             return Result.failure(
                 IllegalStateException(
-                    "TIKTOK_PUBLIC_PROFILE_UNAVAILABLE: TikTok profile discovery failed in the extractor and no public video links were visible in guest mode." +
+                    "TIKTOK_ITEM_UNAVAILABLE: TikTok could not expose this item to the downloader." +
                         if (detail.isBlank()) "" else " ($detail)"
                 )
             )
@@ -168,7 +166,30 @@ class DownloaderEngine(private val context: Context) {
         return ytAttempt
     }
 
+    private suspend fun discoverSignedInProfile(url: String, platform: String): Result<List<String>> {
+        if (cancelRequested) return cancelledResult()
+
+        val urls = runCatching {
+            PublicProfileBrowserScanner.scan(context, url, platform)
+        }.getOrDefault(emptyList())
+
+        if (cancelRequested) return cancelledResult()
+        if (urls.isNotEmpty()) return Result.success(urls)
+
+        val name = if (platform == "instagram") "Instagram" else "TikTok"
+        val code = if (platform == "instagram") "INSTAGRAM_PROFILE_SIGNIN_REQUIRED" else "TIKTOK_PROFILE_SIGNIN_REQUIRED"
+        return Result.failure(
+            IllegalStateException(
+                "$code: $name profile discovery found no visible video links. Sign in on the official $name page when prompted, then tap SCAN PROFILE."
+            )
+        )
+    }
+
+    private fun cancelledResult(): Result<List<String>> =
+        Result.failure(CancellationException("Cancelled"))
+
     private fun discoverWithYtDlp(url: String): List<String> {
+        if (cancelRequested) throw CancellationException("Cancelled")
         val request = YoutubeDLRequest(url)
         request.addOption("--flat-playlist")
         request.addOption("--skip-download")
@@ -221,58 +242,12 @@ class DownloaderEngine(private val context: Context) {
 
         val found = linkedSetOf<String>()
         for (candidate in candidates) {
+            if (cancelRequested) break
             val html = runCatching { fetchPublicHtml(candidate) }.getOrNull() ?: continue
             found += extractFacebookVideoUrls(html)
             if (found.size >= 300) break
         }
         return found.take(300)
-    }
-
-    private fun discoverSimplePublicProfile(url: String, platform: String): List<String> {
-        val html = fetchPublicHtml(normalizeInputUrl(url))
-        if (html.isBlank()) return emptyList()
-        return extractSimpleSocialUrls(html, platform).take(300)
-    }
-
-    private fun extractSimpleSocialUrls(rawHtml: String, platform: String): List<String> {
-        val html = rawHtml
-            .replace("\\u002F", "/", ignoreCase = true)
-            .replace("\\u003A", ":", ignoreCase = true)
-            .replace("\\u003F", "?", ignoreCase = true)
-            .replace("\\u0026", "&", ignoreCase = true)
-            .replace("\\/", "/")
-            .replace("&amp;", "&")
-
-        val out = linkedSetOf<String>()
-        when (platform.lowercase()) {
-            "instagram" -> {
-                Regex(
-                    "https?://(?:www\\.)?instagram\\.com/(?:reel|p)/[A-Za-z0-9_-]+/?[^\\\"'<>\\s]*",
-                    RegexOption.IGNORE_CASE
-                ).findAll(html).forEach { out += it.value.substringBefore('#') }
-
-                Regex(
-                    "href=[\\\"'](/(?:reel|p)/[A-Za-z0-9_-]+/?[^\\\"']*)[\\\"']",
-                    RegexOption.IGNORE_CASE
-                ).findAll(html).forEach { match ->
-                    out += "https://www.instagram.com${match.groupValues[1]}"
-                }
-            }
-            "tiktok" -> {
-                Regex(
-                    "https?://(?:www\\.)?tiktok\\.com/@[^/\\\"'<>\\s]+/video/\\d+[^\\\"'<>\\s]*",
-                    RegexOption.IGNORE_CASE
-                ).findAll(html).forEach { out += it.value.substringBefore('#') }
-
-                Regex(
-                    "href=[\\\"'](/@[^/\\\"']+/video/\\d+[^\\\"']*)[\\\"']",
-                    RegexOption.IGNORE_CASE
-                ).findAll(html).forEach { match ->
-                    out += "https://www.tiktok.com${match.groupValues[1]}"
-                }
-            }
-        }
-        return out.distinct()
     }
 
     private fun extractFacebookVideoUrls(rawHtml: String): List<String> {
@@ -285,13 +260,14 @@ class DownloaderEngine(private val context: Context) {
             .replace("&amp;", "&")
 
         val out = linkedSetOf<String>()
-
         val absolutePatterns = listOf(
             Regex("https?://(?:www\\.|m\\.)?facebook\\.com/reel/\\d+[^\\\"'<>\\s]*", RegexOption.IGNORE_CASE),
             Regex("https?://(?:www\\.|m\\.)?facebook\\.com/[^\\\"'<>\\s]+/videos/\\d+[^\\\"'<>\\s]*", RegexOption.IGNORE_CASE),
             Regex("https?://(?:www\\.|m\\.)?facebook\\.com/watch/\\?v=\\d+[^\\\"'<>\\s]*", RegexOption.IGNORE_CASE)
         )
-        absolutePatterns.forEach { regex -> regex.findAll(html).forEach { out += it.value.replace("m.facebook.com", "www.facebook.com") } }
+        absolutePatterns.forEach { regex ->
+            regex.findAll(html).forEach { out += it.value.replace("m.facebook.com", "www.facebook.com") }
+        }
 
         val relativePattern = Regex(
             "href=[\\\"']([^\\\"']*(?:/reel/\\d+|/videos/\\d+|/watch/\\?v=\\d+)[^\\\"']*)[\\\"']",
@@ -312,14 +288,13 @@ class DownloaderEngine(private val context: Context) {
                 out += "https://www.facebook.com/watch/?v=${match.groupValues[1]}"
             }
         }
-
         return out.distinct()
     }
 
     private fun resolveRedirectUrl(input: String): String {
         var current = normalizeInputUrl(input)
-
         repeat(6) {
+            if (cancelRequested) throw CancellationException("Cancelled")
             val connection = (URL(current).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = false
                 connectTimeout = 10_000
@@ -368,6 +343,7 @@ class DownloaderEngine(private val context: Context) {
     }
 
     private fun fetchPublicHtml(url: String): String {
+        if (cancelRequested) throw CancellationException("Cancelled")
         val connection = (URL(normalizeInputUrl(url)).openConnection() as HttpURLConnection).apply {
             instanceFollowRedirects = true
             connectTimeout = 12_000
@@ -420,13 +396,25 @@ class DownloaderEngine(private val context: Context) {
     }
 
     private fun isInstagramUrl(url: String): Boolean {
-        val lower = normalizeInputUrl(url).lowercase()
-        return "instagram.com" in lower
+        return "instagram.com" in normalizeInputUrl(url).lowercase()
     }
 
     private fun isTikTokUrl(url: String): Boolean {
-        val lower = normalizeInputUrl(url).lowercase()
-        return "tiktok.com" in lower
+        return "tiktok.com" in normalizeInputUrl(url).lowercase()
+    }
+
+    private fun isInstagramProfileUrl(url: String): Boolean {
+        if (!isInstagramUrl(url)) return false
+        val path = runCatching { URL(normalizeInputUrl(url)).path.trim('/').lowercase() }.getOrDefault("")
+        if (path.isBlank()) return false
+        val first = path.substringBefore('/')
+        return first !in setOf("reel", "p", "stories", "accounts", "explore", "direct", "tv")
+    }
+
+    private fun isTikTokProfileUrl(url: String): Boolean {
+        if (!isTikTokUrl(url)) return false
+        val path = runCatching { URL(normalizeInputUrl(url)).path.trim('/').lowercase() }.getOrDefault("")
+        return path.startsWith("@") && !path.contains("/video/")
     }
 
     private fun firstErrorLine(t: Throwable?): String = t?.message.orEmpty()
@@ -436,6 +424,7 @@ class DownloaderEngine(private val context: Context) {
         .take(160)
 
     suspend fun updateEngineStable(): Result<String> = withContext(Dispatchers.IO) {
+        cancelRequested = false
         runCatching {
             YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.NIGHTLY)
             "Downloader engine updated to latest nightly"
