@@ -52,8 +52,8 @@ class DownloaderEngine(private val context: Context) {
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val normalized = normalizeInputUrl(url)
-            val targetUrl = if (isFacebookUrl(normalized) && normalized.contains("/share/", ignoreCase = true)) {
-                resolveRedirectUrl(normalized)
+            val targetUrl = if (shouldResolveRedirect(normalized)) {
+                runCatching { resolveRedirectUrl(normalized) }.getOrDefault(normalized)
             } else normalized
 
             val request = YoutubeDLRequest(targetUrl)
@@ -64,11 +64,7 @@ class DownloaderEngine(private val context: Context) {
             request.addOption("--retries", "5")
             request.addOption("--fragment-retries", "5")
             request.addOption("-o", File(outputDir, "%(title)s [%(id)s].%(ext)s").absolutePath)
-
-            if (isFacebookUrl(targetUrl)) {
-                request.addOption("--user-agent", browserUserAgent)
-                request.addOption("--referer", "https://www.facebook.com/")
-            }
+            applyPublicHeaders(request, targetUrl)
 
             when (format) {
                 FormatPreset.VIDEO_MP4 -> {
@@ -100,7 +96,7 @@ class DownloaderEngine(private val context: Context) {
 
     suspend fun discoverCollection(url: String): Result<List<String>> {
         val normalized = normalizeInputUrl(url)
-        val targetUrl = if (isFacebookUrl(normalized) && normalized.contains("/share/", ignoreCase = true)) {
+        val targetUrl = if (shouldResolveRedirect(normalized)) {
             runCatching { resolveRedirectUrl(normalized) }.getOrDefault(normalized)
         } else normalized
 
@@ -114,23 +110,56 @@ class DownloaderEngine(private val context: Context) {
             }
             if (httpFallback.isNotEmpty()) return Result.success(httpFallback)
 
-            // Final guest-mode fallback: open a visible Android WebView and collect only
-            // public reel/video links Facebook actually renders to a signed-out browser.
             val webViewFallback = runCatching {
                 FacebookBrowserScanner.scan(context, targetUrl)
             }.getOrDefault(emptyList())
             if (webViewFallback.isNotEmpty()) return Result.success(webViewFallback)
 
-            val detail = ytAttempt.exceptionOrNull()?.message.orEmpty()
-                .lineSequence()
-                .firstOrNull { it.isNotBlank() }
-                .orEmpty()
-                .take(140)
-
+            val detail = firstErrorLine(ytAttempt.exceptionOrNull())
             return Result.failure(
                 IllegalStateException(
                     "FACEBOOK_PUBLIC_PROFILE_UNAVAILABLE: Facebook did not expose any Page/Profile Reels or Videos to signed-out guest mode. " +
                         "Direct public reel/video links can still be downloaded in Single or Bulk mode." +
+                        if (detail.isBlank()) "" else " ($detail)"
+                )
+            )
+        }
+
+        if (isInstagramUrl(targetUrl) || isInstagramUrl(normalized)) {
+            val httpFallback = withContext(Dispatchers.IO) {
+                runCatching { discoverSimplePublicProfile(targetUrl, "instagram") }.getOrDefault(emptyList())
+            }
+            if (httpFallback.isNotEmpty()) return Result.success(httpFallback)
+
+            val webFallback = runCatching {
+                PublicProfileBrowserScanner.scan(context, targetUrl, "instagram")
+            }.getOrDefault(emptyList())
+            if (webFallback.isNotEmpty()) return Result.success(webFallback)
+
+            val detail = firstErrorLine(ytAttempt.exceptionOrNull())
+            return Result.failure(
+                IllegalStateException(
+                    "INSTAGRAM_PUBLIC_PROFILE_UNAVAILABLE: Instagram did not expose public profile posts/reels to signed-out guest mode." +
+                        if (detail.isBlank()) "" else " ($detail)"
+                )
+            )
+        }
+
+        if (isTikTokUrl(targetUrl) || isTikTokUrl(normalized)) {
+            val httpFallback = withContext(Dispatchers.IO) {
+                runCatching { discoverSimplePublicProfile(targetUrl, "tiktok") }.getOrDefault(emptyList())
+            }
+            if (httpFallback.isNotEmpty()) return Result.success(httpFallback)
+
+            val webFallback = runCatching {
+                PublicProfileBrowserScanner.scan(context, targetUrl, "tiktok")
+            }.getOrDefault(emptyList())
+            if (webFallback.isNotEmpty()) return Result.success(webFallback)
+
+            val detail = firstErrorLine(ytAttempt.exceptionOrNull())
+            return Result.failure(
+                IllegalStateException(
+                    "TIKTOK_PUBLIC_PROFILE_UNAVAILABLE: TikTok profile discovery failed in the extractor and no public video links were visible in guest mode." +
                         if (detail.isBlank()) "" else " ($detail)"
                 )
             )
@@ -145,11 +174,7 @@ class DownloaderEngine(private val context: Context) {
         request.addOption("--skip-download")
         request.addOption("--no-warnings")
         request.addOption("--print", "%(webpage_url)s")
-
-        if (isFacebookUrl(url)) {
-            request.addOption("--user-agent", browserUserAgent)
-            request.addOption("--referer", "https://www.facebook.com/")
-        }
+        applyPublicHeaders(request, url)
 
         val processId = "discover-${UUID.randomUUID()}"
         activeProcessId = processId
@@ -163,6 +188,23 @@ class DownloaderEngine(private val context: Context) {
                 .toList()
         } finally {
             if (activeProcessId == processId) activeProcessId = null
+        }
+    }
+
+    private fun applyPublicHeaders(request: YoutubeDLRequest, url: String) {
+        when {
+            isFacebookUrl(url) -> {
+                request.addOption("--user-agent", browserUserAgent)
+                request.addOption("--referer", "https://www.facebook.com/")
+            }
+            isInstagramUrl(url) -> {
+                request.addOption("--user-agent", browserUserAgent)
+                request.addOption("--referer", "https://www.instagram.com/")
+            }
+            isTikTokUrl(url) -> {
+                request.addOption("--user-agent", browserUserAgent)
+                request.addOption("--referer", "https://www.tiktok.com/")
+            }
         }
     }
 
@@ -184,6 +226,53 @@ class DownloaderEngine(private val context: Context) {
             if (found.size >= 300) break
         }
         return found.take(300)
+    }
+
+    private fun discoverSimplePublicProfile(url: String, platform: String): List<String> {
+        val html = fetchPublicHtml(normalizeInputUrl(url))
+        if (html.isBlank()) return emptyList()
+        return extractSimpleSocialUrls(html, platform).take(300)
+    }
+
+    private fun extractSimpleSocialUrls(rawHtml: String, platform: String): List<String> {
+        val html = rawHtml
+            .replace("\\u002F", "/", ignoreCase = true)
+            .replace("\\u003A", ":", ignoreCase = true)
+            .replace("\\u003F", "?", ignoreCase = true)
+            .replace("\\u0026", "&", ignoreCase = true)
+            .replace("\\/", "/")
+            .replace("&amp;", "&")
+
+        val out = linkedSetOf<String>()
+        when (platform.lowercase()) {
+            "instagram" -> {
+                Regex(
+                    "https?://(?:www\\.)?instagram\\.com/(?:reel|p)/[A-Za-z0-9_-]+/?[^\\\"'<>\\s]*",
+                    RegexOption.IGNORE_CASE
+                ).findAll(html).forEach { out += it.value.substringBefore('#') }
+
+                Regex(
+                    "href=[\\\"'](/(?:reel|p)/[A-Za-z0-9_-]+/?[^\\\"']*)[\\\"']",
+                    RegexOption.IGNORE_CASE
+                ).findAll(html).forEach { match ->
+                    out += "https://www.instagram.com${match.groupValues[1]}"
+                }
+            }
+            "tiktok" -> {
+                Regex(
+                    "https?://(?:www\\.)?tiktok\\.com/@[^/\\\"'<>\\s]+/video/\\d+[^\\\"'<>\\s]*",
+                    RegexOption.IGNORE_CASE
+                ).findAll(html).forEach { out += it.value.substringBefore('#') }
+
+                Regex(
+                    "href=[\\\"'](/@[^/\\\"']+/video/\\d+[^\\\"']*)[\\\"']",
+                    RegexOption.IGNORE_CASE
+                ).findAll(html).forEach { match ->
+                    out += "https://www.tiktok.com${match.groupValues[1]}"
+                }
+            }
+        }
+        return out.distinct()
     }
 
     private fun extractFacebookVideoUrls(rawHtml: String): List<String> {
@@ -246,11 +335,13 @@ class DownloaderEngine(private val context: Context) {
                     val location = connection.getHeaderField("Location") ?: return current
                     current = URL(URL(current), location).toString()
                 } else {
-                    val html = runCatching {
-                        connection.inputStream.bufferedReader().use { it.readText().take(600_000) }
-                    }.getOrDefault("")
-                    val canonical = extractCanonicalFacebookUrl(html)
-                    if (!canonical.isNullOrBlank() && canonical != current) current = canonical
+                    if (isFacebookUrl(current)) {
+                        val html = runCatching {
+                            connection.inputStream.bufferedReader().use { it.readText().take(600_000) }
+                        }.getOrDefault("")
+                        val canonical = extractCanonicalFacebookUrl(html)
+                        if (!canonical.isNullOrBlank() && canonical != current) current = canonical
+                    }
                     return current
                 }
             } finally {
@@ -299,13 +390,26 @@ class DownloaderEngine(private val context: Context) {
         }
     }
 
+    private fun shouldResolveRedirect(url: String): Boolean {
+        val lower = normalizeInputUrl(url).lowercase()
+        return (isFacebookUrl(lower) && "/share/" in lower) ||
+            "vm.tiktok.com" in lower ||
+            "vt.tiktok.com" in lower ||
+            "tiktok.com/t/" in lower
+    }
+
     private fun normalizeInputUrl(raw: String): String {
         val value = raw.trim()
         return when {
             value.startsWith("https://", true) || value.startsWith("http://", true) -> value
             value.startsWith("://") -> "https$value"
             value.startsWith("//") -> "https:$value"
-            value.startsWith("www.") || value.startsWith("facebook.com", true) -> "https://$value"
+            value.startsWith("www.") ||
+                value.startsWith("facebook.com", true) ||
+                value.startsWith("instagram.com", true) ||
+                value.startsWith("tiktok.com", true) ||
+                value.startsWith("vm.tiktok.com", true) ||
+                value.startsWith("vt.tiktok.com", true) -> "https://$value"
             else -> value
         }
     }
@@ -314,6 +418,22 @@ class DownloaderEngine(private val context: Context) {
         val lower = normalizeInputUrl(url).lowercase()
         return "facebook.com" in lower || "fb.watch" in lower
     }
+
+    private fun isInstagramUrl(url: String): Boolean {
+        val lower = normalizeInputUrl(url).lowercase()
+        return "instagram.com" in lower
+    }
+
+    private fun isTikTokUrl(url: String): Boolean {
+        val lower = normalizeInputUrl(url).lowercase()
+        return "tiktok.com" in lower
+    }
+
+    private fun firstErrorLine(t: Throwable?): String = t?.message.orEmpty()
+        .lineSequence()
+        .firstOrNull { it.isNotBlank() }
+        .orEmpty()
+        .take(160)
 
     suspend fun updateEngineStable(): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
