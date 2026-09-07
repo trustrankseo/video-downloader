@@ -192,6 +192,12 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
     private fun friendlyError(t: Throwable?): String {
         val msg = t?.message.orEmpty()
         return when {
+            msg.contains("FACEBOOK_PUBLIC_PROFILE_UNAVAILABLE", ignoreCase = true) ->
+                "Facebook Page/Profile guest discovery is blocked on this link. Try its Reels/Videos tab or direct public reel/video links."
+            msg.contains("unsupported url", ignoreCase = true) && msg.contains("facebook", ignoreCase = true) ->
+                "Facebook redirected to a profile/page URL that its extractor cannot enumerate yet."
+            msg.contains("cannot parse data", ignoreCase = true) && msg.contains("facebook", ignoreCase = true) ->
+                "Facebook changed its public page data. Tap Update Engine, then retry the public video/reel."
             msg.contains("cancel", ignoreCase = true) -> "Cancelled"
             msg.contains("login", ignoreCase = true) || msg.contains("cookies", ignoreCase = true) ->
                 "This item requires platform authentication; guest mode cannot access it."
