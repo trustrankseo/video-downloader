@@ -7,6 +7,8 @@ import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.UUID
 
 class DownloaderEngine(private val context: Context) {
@@ -21,13 +23,26 @@ class DownloaderEngine(private val context: Context) {
     @Volatile
     private var activeProcessId: String? = null
 
+    @Volatile
+    private var activeConnection: HttpURLConnection? = null
+
+    private val browserUserAgent =
+        "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
+
     fun outputPath(): String = outputDir.absolutePath
 
     fun cancelActive(): Boolean {
-        val processId = activeProcessId ?: return false
-        return runCatching {
-            YoutubeDL.getInstance().destroyProcessById(processId)
-        }.getOrDefault(false)
+        val processId = activeProcessId
+        val hadConnection = activeConnection != null
+        runCatching { activeConnection?.disconnect() }
+        activeConnection = null
+
+        val processStopped = if (processId != null) {
+            runCatching { YoutubeDL.getInstance().destroyProcessById(processId) }.getOrDefault(false)
+        } else false
+
+        return processStopped || hadConnection
     }
 
     suspend fun download(
@@ -36,7 +51,11 @@ class DownloaderEngine(private val context: Context) {
         onProgress: (Float, Long) -> Unit
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val request = YoutubeDLRequest(url)
+            val targetUrl = if (isFacebookUrl(url) && url.contains("/share/", ignoreCase = true)) {
+                resolveRedirectUrl(url)
+            } else url
+
+            val request = YoutubeDLRequest(targetUrl)
             request.addOption("--no-playlist")
             request.addOption("--no-mtime")
             request.addOption("--newline")
@@ -44,6 +63,11 @@ class DownloaderEngine(private val context: Context) {
             request.addOption("--retries", "5")
             request.addOption("--fragment-retries", "5")
             request.addOption("-o", File(outputDir, "%(title)s [%(id)s].%(ext)s").absolutePath)
+
+            if (isFacebookUrl(targetUrl)) {
+                request.addOption("--user-agent", browserUserAgent)
+                request.addOption("--referer", "https://www.facebook.com/")
+            }
 
             when (format) {
                 FormatPreset.VIDEO_MP4 -> {
@@ -74,33 +98,210 @@ class DownloaderEngine(private val context: Context) {
     }
 
     suspend fun discoverCollection(url: String): Result<List<String>> = withContext(Dispatchers.IO) {
-        runCatching {
-            val request = YoutubeDLRequest(url)
-            request.addOption("--flat-playlist")
-            request.addOption("--skip-download")
-            request.addOption("--no-warnings")
-            request.addOption("--print", "%(webpage_url)s")
+        val targetUrl = if (isFacebookUrl(url) && url.contains("/share/", ignoreCase = true)) {
+            runCatching { resolveRedirectUrl(url) }.getOrDefault(url)
+        } else url
 
-            val processId = "discover-${UUID.randomUUID()}"
-            activeProcessId = processId
-            try {
-                val response = YoutubeDL.getInstance().execute(request, processId)
-                response.out
-                    .lineSequence()
-                    .map { it.trim() }
-                    .filter { it.startsWith("http://") || it.startsWith("https://") }
-                    .distinct()
-                    .toList()
-            } finally {
-                if (activeProcessId == processId) activeProcessId = null
+        val ytAttempt = runCatching { discoverWithYtDlp(targetUrl) }
+        val ytUrls = ytAttempt.getOrDefault(emptyList())
+        if (ytUrls.isNotEmpty()) {
+            return@withContext Result.success(ytUrls)
+        }
+
+        if (isFacebookUrl(targetUrl) || isFacebookUrl(url)) {
+            val fallback = runCatching { discoverFacebookPublicProfile(targetUrl) }
+                .getOrDefault(emptyList())
+
+            if (fallback.isNotEmpty()) {
+                return@withContext Result.success(fallback)
+            }
+
+            val detail = ytAttempt.exceptionOrNull()?.message.orEmpty()
+                .lineSequence()
+                .firstOrNull { it.isNotBlank() }
+                .orEmpty()
+                .take(140)
+
+            return@withContext Result.failure(
+                IllegalStateException(
+                    "FACEBOOK_PUBLIC_PROFILE_UNAVAILABLE: Facebook redirected this link to a Page/Profile, " +
+                        "but its public Reels/Videos list was not exposed to guest mode. " +
+                        "Try the page's Reels/Videos tab URL or direct public reel/video links." +
+                        if (detail.isBlank()) "" else " ($detail)"
+                )
+            )
+        }
+
+        ytAttempt
+    }
+
+    private fun discoverWithYtDlp(url: String): List<String> {
+        val request = YoutubeDLRequest(url)
+        request.addOption("--flat-playlist")
+        request.addOption("--skip-download")
+        request.addOption("--no-warnings")
+        request.addOption("--print", "%(webpage_url)s")
+
+        if (isFacebookUrl(url)) {
+            request.addOption("--user-agent", browserUserAgent)
+            request.addOption("--referer", "https://www.facebook.com/")
+        }
+
+        val processId = "discover-${UUID.randomUUID()}"
+        activeProcessId = processId
+        return try {
+            val response = YoutubeDL.getInstance().execute(request, processId)
+            response.out
+                .lineSequence()
+                .map { it.trim() }
+                .filter { it.startsWith("http://") || it.startsWith("https://") }
+                .distinct()
+                .toList()
+        } finally {
+            if (activeProcessId == processId) activeProcessId = null
+        }
+    }
+
+    private fun discoverFacebookPublicProfile(url: String): List<String> {
+        val clean = url.substringBefore('#').substringBefore('?').trimEnd('/')
+        val candidates = linkedSetOf(
+            url,
+            "$clean?sk=reels_tab",
+            "$clean/reels/",
+            "$clean/videos/"
+        )
+
+        val found = linkedSetOf<String>()
+        for (candidate in candidates) {
+            val html = runCatching { fetchPublicHtml(candidate) }.getOrNull() ?: continue
+            found += extractFacebookVideoUrls(html)
+            if (found.size >= 200) break
+        }
+        return found.take(200)
+    }
+
+    private fun extractFacebookVideoUrls(rawHtml: String): List<String> {
+        val html = rawHtml
+            .replace("\\u002F", "/", ignoreCase = true)
+            .replace("\\u003A", ":", ignoreCase = true)
+            .replace("\\u003F", "?", ignoreCase = true)
+            .replace("\\u0026", "&", ignoreCase = true)
+            .replace("\\/", "/")
+            .replace("&amp;", "&")
+
+        val out = linkedSetOf<String>()
+
+        val absolutePatterns = listOf(
+            Regex("https?://(?:www\\.)?facebook\\.com/reel/\\d+[^\\\"'<>\\s]*", RegexOption.IGNORE_CASE),
+            Regex("https?://(?:www\\.)?facebook\\.com/[^\\\"'<>\\s]+/videos/\\d+[^\\\"'<>\\s]*", RegexOption.IGNORE_CASE),
+            Regex("https?://(?:www\\.)?facebook\\.com/watch/\\?v=\\d+[^\\\"'<>\\s]*", RegexOption.IGNORE_CASE)
+        )
+        absolutePatterns.forEach { regex -> regex.findAll(html).forEach { out += it.value } }
+
+        val relativePattern = Regex(
+            "href=[\\\"']([^\\\"']*(?:/reel/\\d+|/videos/\\d+|/watch/\\?v=\\d+)[^\\\"']*)[\\\"']",
+            RegexOption.IGNORE_CASE
+        )
+        relativePattern.findAll(html).forEach { match ->
+            val href = match.groupValues[1]
+            val resolved = runCatching { URL(URL("https://www.facebook.com/"), href).toString() }.getOrNull()
+            if (resolved != null) out += resolved
+        }
+
+        val videoIdPatterns = listOf(
+            Regex("\\\"video_id\\\"\\s*:\\s*\\\"?(\\d{8,})", RegexOption.IGNORE_CASE),
+            Regex("\\\"videoId\\\"\\s*:\\s*\\\"?(\\d{8,})", RegexOption.IGNORE_CASE)
+        )
+        videoIdPatterns.forEach { regex ->
+            regex.findAll(html).forEach { match ->
+                out += "https://www.facebook.com/watch/?v=${match.groupValues[1]}"
             }
         }
+
+        return out.distinct()
+    }
+
+    private fun resolveRedirectUrl(input: String): String {
+        var current = if (input.startsWith("http://") || input.startsWith("https://")) input else "https://$input"
+
+        repeat(6) {
+            val connection = (URL(current).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = false
+                connectTimeout = 10_000
+                readTimeout = 10_000
+                requestMethod = "GET"
+                setRequestProperty("User-Agent", browserUserAgent)
+                setRequestProperty("Accept-Language", "en-US,en;q=0.9")
+            }
+            activeConnection = connection
+            try {
+                val code = connection.responseCode
+                if (code in 300..399) {
+                    val location = connection.getHeaderField("Location") ?: return current
+                    current = URL(URL(current), location).toString()
+                } else {
+                    val html = runCatching {
+                        connection.inputStream.bufferedReader().use { it.readText().take(600_000) }
+                    }.getOrDefault("")
+                    val canonical = extractCanonicalFacebookUrl(html)
+                    if (!canonical.isNullOrBlank() && canonical != current) current = canonical
+                    return current
+                }
+            } finally {
+                connection.disconnect()
+                if (activeConnection === connection) activeConnection = null
+            }
+        }
+        return current
+    }
+
+    private fun extractCanonicalFacebookUrl(html: String): String? {
+        if (html.isBlank()) return null
+        val normalized = html.replace("&amp;", "&").replace("\\/", "/")
+        val patterns = listOf(
+            Regex("<meta[^>]+property=[\\\"']og:url[\\\"'][^>]+content=[\\\"']([^\\\"']+)", RegexOption.IGNORE_CASE),
+            Regex("<link[^>]+rel=[\\\"']canonical[\\\"'][^>]+href=[\\\"']([^\\\"']+)", RegexOption.IGNORE_CASE),
+            Regex("<meta[^>]+content=[\\\"']([^\\\"']+)[\\\"'][^>]+property=[\\\"']og:url[\\\"']", RegexOption.IGNORE_CASE)
+        )
+        for (pattern in patterns) {
+            val value = pattern.find(normalized)?.groupValues?.getOrNull(1)
+            if (!value.isNullOrBlank() && isFacebookUrl(value)) return value
+        }
+        return null
+    }
+
+    private fun fetchPublicHtml(url: String): String {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = true
+            connectTimeout = 12_000
+            readTimeout = 12_000
+            requestMethod = "GET"
+            setRequestProperty("User-Agent", browserUserAgent)
+            setRequestProperty("Accept-Language", "en-US,en;q=0.9")
+        }
+        activeConnection = connection
+        return try {
+            val code = connection.responseCode
+            if (code !in 200..299) return ""
+            connection.inputStream.bufferedReader().use { reader ->
+                val text = reader.readText()
+                if (text.length > 5_000_000) text.take(5_000_000) else text
+            }
+        } finally {
+            connection.disconnect()
+            if (activeConnection === connection) activeConnection = null
+        }
+    }
+
+    private fun isFacebookUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        return "facebook.com" in lower || "fb.watch" in lower
     }
 
     suspend fun updateEngineStable(): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            YoutubeDL.getInstance().updateYoutubeDL(context)
-            "Downloader engine updated"
+            YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.NIGHTLY)
+            "Downloader engine updated to latest nightly"
         }
     }
 }
