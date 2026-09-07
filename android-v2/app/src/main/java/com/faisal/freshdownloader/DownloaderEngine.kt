@@ -14,11 +14,21 @@ class DownloaderEngine(private val context: Context) {
     private val outputDir: File by lazy {
         File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            "FreshDownloader"
+            "UniversalDownloader"
         ).apply { mkdirs() }
     }
 
+    @Volatile
+    private var activeProcessId: String? = null
+
     fun outputPath(): String = outputDir.absolutePath
+
+    fun cancelActive(): Boolean {
+        val processId = activeProcessId ?: return false
+        return runCatching {
+            YoutubeDL.getInstance().destroyProcessById(processId)
+        }.getOrDefault(false)
+    }
 
     suspend fun download(
         url: String,
@@ -48,21 +58,21 @@ class DownloaderEngine(private val context: Context) {
             }
 
             val processId = "dl-${UUID.randomUUID()}"
-            val response = YoutubeDL.getInstance().execute(
-                request,
-                processId
-            ) { progress, eta, _ ->
-                onProgress(progress, eta)
+            activeProcessId = processId
+            try {
+                val response = YoutubeDL.getInstance().execute(
+                    request,
+                    processId
+                ) { progress, eta, _ ->
+                    onProgress(progress, eta)
+                }
+                response.out
+            } finally {
+                if (activeProcessId == processId) activeProcessId = null
             }
-            response.out
         }
     }
 
-    /**
-     * Discover entries from any collection URL supported by yt-dlp: YouTube
-     * channel/playlist and public profile/feed URLs on supported sites.
-     * No paid API, cookies, or account credentials are supplied.
-     */
     suspend fun discoverCollection(url: String): Result<List<String>> = withContext(Dispatchers.IO) {
         runCatching {
             val request = YoutubeDLRequest(url)
@@ -71,20 +81,26 @@ class DownloaderEngine(private val context: Context) {
             request.addOption("--no-warnings")
             request.addOption("--print", "%(webpage_url)s")
 
-            val response = YoutubeDL.getInstance().execute(request)
-            response.out
-                .lineSequence()
-                .map { it.trim() }
-                .filter { it.startsWith("http://") || it.startsWith("https://") }
-                .distinct()
-                .toList()
+            val processId = "discover-${UUID.randomUUID()}"
+            activeProcessId = processId
+            try {
+                val response = YoutubeDL.getInstance().execute(request, processId)
+                response.out
+                    .lineSequence()
+                    .map { it.trim() }
+                    .filter { it.startsWith("http://") || it.startsWith("https://") }
+                    .distinct()
+                    .toList()
+            } finally {
+                if (activeProcessId == processId) activeProcessId = null
+            }
         }
     }
 
     suspend fun updateEngineStable(): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             YoutubeDL.getInstance().updateYoutubeDL(context)
-            "yt-dlp updated"
+            "Downloader engine updated"
         }
     }
 }
