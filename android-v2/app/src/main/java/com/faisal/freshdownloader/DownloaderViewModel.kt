@@ -9,6 +9,9 @@ import java.util.UUID
 class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
     private val engine = DownloaderEngine(app)
 
+    @Volatile
+    private var abortRequested = false
+
     var state = androidx.compose.runtime.mutableStateOf(UiState())
         private set
 
@@ -17,7 +20,23 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
     fun clearFinished() {
         state.value = state.value.copy(
             tasks = state.value.tasks.filterNot {
-                it.status == DownloadStatus.COMPLETE || it.status == DownloadStatus.FAILED
+                it.status == DownloadStatus.COMPLETE ||
+                    it.status == DownloadStatus.FAILED ||
+                    it.status == DownloadStatus.CANCELLED
+            }
+        )
+    }
+
+    fun stopDownloads() {
+        if (!state.value.running) return
+        abortRequested = true
+        engine.cancelActive()
+        state.value = state.value.copy(
+            statusLine = "Stopping downloads…",
+            tasks = state.value.tasks.map {
+                if (it.status == DownloadStatus.QUEUED || it.status == DownloadStatus.DISCOVERING) {
+                    it.copy(status = DownloadStatus.CANCELLED, progress = 0f, message = "Cancelled")
+                } else it
             }
         )
     }
@@ -25,11 +44,15 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
     fun downloadSingle(url: String, format: FormatPreset) {
         val clean = url.trim()
         if (clean.isBlank() || state.value.running) return
+        abortRequested = false
         val task = DownloadTask(id = UUID.randomUUID().toString(), url = clean)
         state.value = UiState(running = true, statusLine = "Starting…", tasks = listOf(task))
         viewModelScope.launch {
             runOne(task, format)
-            state.value = state.value.copy(running = false, statusLine = "Finished")
+            state.value = state.value.copy(
+                running = false,
+                statusLine = if (abortRequested) "Download stopped" else "Finished"
+            )
         }
     }
 
@@ -42,21 +65,35 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
             .toList()
         if (urls.isEmpty()) return
 
+        abortRequested = false
         val tasks = urls.map { DownloadTask(id = UUID.randomUUID().toString(), url = it) }
         state.value = UiState(running = true, statusLine = "Bulk queue: ${tasks.size}", tasks = tasks)
         viewModelScope.launch {
-            // Sequential by design: stability first and lower rate-limit pressure.
-            for (task in tasks) runOne(task, format)
-            state.value = state.value.copy(running = false, statusLine = "Bulk queue finished")
+            for (task in tasks) {
+                if (abortRequested) break
+                runOne(task, format)
+            }
+            if (abortRequested) cancelRemainingQueued()
+            state.value = state.value.copy(
+                running = false,
+                statusLine = if (abortRequested) "Bulk queue stopped" else "Bulk queue finished"
+            )
         }
     }
 
     fun downloadCollection(collectionUrl: String, format: FormatPreset) {
         val clean = collectionUrl.trim()
         if (clean.isBlank() || state.value.running) return
+        abortRequested = false
         state.value = UiState(running = true, statusLine = "Discovering collection…")
         viewModelScope.launch {
             val discovered = engine.discoverCollection(clean)
+
+            if (abortRequested) {
+                state.value = state.value.copy(running = false, statusLine = "Discovery stopped")
+                return@launch
+            }
+
             if (discovered.isFailure) {
                 state.value = UiState(
                     running = false,
@@ -81,14 +118,23 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
                 tasks = tasks,
                 discoveredCount = tasks.size
             )
-            for (task in tasks) runOne(task, format)
-            state.value = state.value.copy(running = false, statusLine = "Collection finished")
+
+            for (task in tasks) {
+                if (abortRequested) break
+                runOne(task, format)
+            }
+
+            if (abortRequested) cancelRemainingQueued()
+            state.value = state.value.copy(
+                running = false,
+                statusLine = if (abortRequested) "Channel/profile download stopped" else "Collection finished"
+            )
         }
     }
 
     fun updateEngine() {
         if (state.value.running) return
-        state.value = state.value.copy(running = true, statusLine = "Updating yt-dlp…")
+        state.value = state.value.copy(running = true, statusLine = "Updating downloader engine…")
         viewModelScope.launch {
             val result = engine.updateEngineStable()
             state.value = state.value.copy(
@@ -99,20 +145,40 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun runOne(task: DownloadTask, format: FormatPreset) {
+        if (abortRequested) {
+            updateTask(task.id, DownloadStatus.CANCELLED, 0f, "Cancelled")
+            return
+        }
+
         updateTask(task.id, DownloadStatus.DOWNLOADING, 0f, "Starting")
         val result = engine.download(task.url, format) { progress, eta ->
-            updateTask(
-                task.id,
-                DownloadStatus.DOWNLOADING,
-                (progress / 100f).coerceIn(0f, 1f),
-                "${progress.toInt()}% • ETA ${eta}s"
-            )
+            if (!abortRequested) {
+                updateTask(
+                    task.id,
+                    DownloadStatus.DOWNLOADING,
+                    (progress / 100f).coerceIn(0f, 1f),
+                    "${progress.toInt()}% • ETA ${eta}s"
+                )
+            }
         }
-        if (result.isSuccess) {
+
+        if (abortRequested) {
+            updateTask(task.id, DownloadStatus.CANCELLED, 0f, "Stopped by user")
+        } else if (result.isSuccess) {
             updateTask(task.id, DownloadStatus.COMPLETE, 1f, "Saved")
         } else {
             updateTask(task.id, DownloadStatus.FAILED, 0f, friendlyError(result.exceptionOrNull()))
         }
+    }
+
+    private fun cancelRemainingQueued() {
+        state.value = state.value.copy(
+            tasks = state.value.tasks.map {
+                if (it.status == DownloadStatus.QUEUED || it.status == DownloadStatus.DISCOVERING) {
+                    it.copy(status = DownloadStatus.CANCELLED, progress = 0f, message = "Cancelled")
+                } else it
+            }
+        )
     }
 
     private fun updateTask(id: String, status: DownloadStatus, progress: Float, message: String) {
@@ -126,6 +192,7 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
     private fun friendlyError(t: Throwable?): String {
         val msg = t?.message.orEmpty()
         return when {
+            msg.contains("cancel", ignoreCase = true) -> "Cancelled"
             msg.contains("login", ignoreCase = true) || msg.contains("cookies", ignoreCase = true) ->
                 "This item requires platform authentication; guest mode cannot access it."
             msg.contains("403", ignoreCase = true) ->
