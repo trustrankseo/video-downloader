@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import base64
 import os
 import re
 import json
@@ -13,7 +14,7 @@ import threading
 import time
 import uuid
 import webbrowser
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import quote_plus, urlparse
 from urllib.request import Request, urlopen
@@ -25,10 +26,12 @@ import sv_ttk
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 
 APP_TITLE = "Video Downloader by Zubair Abbas"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 GITHUB_REPOSITORY = "trustrankseo/video-downloader"
 GITHUB_LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 DOWNLOAD_DIR = Path.home() / "Downloads" / "VideoDownloaderByZubairAbbas"
@@ -39,6 +42,7 @@ HISTORY_FILE = APP_DATA_DIR / "download_history.jsonl"
 DIAGNOSTICS_DIR = APP_DATA_DIR / "diagnostics"
 YTDLP_UPDATE_DIR = APP_DATA_DIR / "yt_dlp_runtime"
 LICENSE_FILE = Path(os.environ.get("APPDATA", str(APP_DATA_DIR))) / "VideoDownloaderByZA" / ".license.dat"
+LICENSE_PUBLIC_KEY = "C3LIUVvcnsBkHb9_70acnssOJO2BcGlkYzy8nWsZ0Q0="
 URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 DEFAULT_API_URL = "http://127.0.0.1:5000"
 APIFY_TIKTOK_ACTOR_ENDPOINT = (
@@ -186,19 +190,126 @@ def api_post(api_url: str, path: str, payload: dict, timeout: int = 10) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
-def get_license_status_text() -> str:
-    """Display license information saved by the launcher without exposing the key."""
+def normalise_hardware_id(value: str) -> str:
+    compact = "".join(char for char in value.upper() if char in "0123456789ABCDEF")
+    if len(compact) != 32:
+        return ""
+    return "-".join(compact[index:index + 4] for index in range(0, 32, 4))
+
+
+def get_hardware_id() -> str:
+    machine_guid = ""
     try:
-        encrypted = LICENSE_FILE.read_bytes()
-        obfuscation_key = b"ZubairAbbasVD2026"
-        raw = bytes(value ^ obfuscation_key[index % len(obfuscation_key)] for index, value in enumerate(encrypted))
-        key = json.loads(raw.decode("utf-8")).get("k", "")
-        parts = key.split("-")
-        if len(parts) == 7:
-            return "License: Lifetime" if parts[5] == "LIFE" else f"License expires: {parts[5][0:4]}-{parts[5][4:6]}-{parts[5][6:8]}"
-        return "License: Lifetime"
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography") as key:
+            machine_guid = str(winreg.QueryValueEx(key, "MachineGuid")[0])
     except Exception:
-        return "License: Managed by launcher"
+        pass
+    source = "|".join((machine_guid, str(uuid.getnode()), os.environ.get("COMPUTERNAME", ""), os.environ.get("PROCESSOR_IDENTIFIER", "")))
+    return normalise_hardware_id(hashlib.sha256(source.encode("utf-8")).hexdigest().upper()[:32])
+
+
+def _decode_license_part(value: str) -> bytes:
+    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+def validate_license_key(key: str) -> tuple[bool, str, str]:
+    try:
+        prefix, payload_token, signature_token = key.strip().split(".")
+        if prefix != "VDZA2":
+            raise ValueError
+        payload_bytes = _decode_license_part(payload_token)
+        signature = _decode_license_part(signature_token)
+        public_bytes = base64.urlsafe_b64decode(LICENSE_PUBLIC_KEY)
+        Ed25519PublicKey.from_public_bytes(public_bytes).verify(signature, payload_bytes)
+        payload = json.loads(payload_bytes.decode("utf-8"))
+        if payload.get("v") != 2 or normalise_hardware_id(str(payload.get("hw", ""))) != get_hardware_id():
+            return False, "This license belongs to a different computer.", ""
+        expiry = str(payload.get("exp", ""))
+        if expiry == "LIFE":
+            return True, "Lifetime license", expiry
+        expires_on = datetime.strptime(expiry, "%Y%m%d").date()
+        if date.today() > expires_on:
+            return False, f"License expired on {expires_on.isoformat()}.", expiry
+        return True, f"License valid until {expires_on.isoformat()}", expiry
+    except (ValueError, KeyError, TypeError, InvalidSignature, json.JSONDecodeError):
+        return False, "Invalid license key.", ""
+    except Exception:
+        return False, "License verification failed.", ""
+
+
+def save_license_key(key: str) -> None:
+    LICENSE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    LICENSE_FILE.write_text(json.dumps({"key": key.strip()}), encoding="utf-8")
+
+
+def load_valid_license() -> tuple[bool, str, str]:
+    try:
+        key = str(json.loads(LICENSE_FILE.read_text(encoding="utf-8")).get("key", ""))
+    except Exception:
+        return False, "License activation is required.", ""
+    return validate_license_key(key)
+
+
+def get_license_status_text() -> str:
+    valid, message, _expiry = load_valid_license()
+    return message if valid else "License required"
+
+
+def require_valid_license() -> bool:
+    valid, _message, _expiry = load_valid_license()
+    if valid:
+        return True
+
+    root = tk.Tk()
+    root.title(f"{APP_TITLE} - License Activation")
+    root.geometry("620x460")
+    root.resizable(False, False)
+    root.configure(bg="#eef2f4")
+    activated = {"value": False}
+    hardware_id = get_hardware_id()
+    key_var = tk.StringVar()
+    status_var = tk.StringVar(value="Enter the license key supplied by Zubair Abbas.")
+
+    card = tk.Frame(root, bg="#ffffff", highlightbackground="#d4dde2", highlightthickness=1)
+    card.pack(fill="both", expand=True, padx=28, pady=28)
+    tk.Label(card, text="Activate Video Downloader", bg="#ffffff", fg="#17232d", font=("Segoe UI Semibold", 20)).pack(anchor="w", padx=24, pady=(24, 5))
+    tk.Label(card, text="This license is tied to this computer.", bg="#ffffff", fg="#64727d", font=("Segoe UI", 10)).pack(anchor="w", padx=24)
+    tk.Label(card, text="Hardware ID", bg="#ffffff", fg="#17232d", font=("Segoe UI Semibold", 10)).pack(anchor="w", padx=24, pady=(22, 5))
+    hardware_row = tk.Frame(card, bg="#ffffff")
+    hardware_row.pack(fill="x", padx=24)
+    hardware_entry = tk.Entry(hardware_row, font=("Consolas", 11), relief="solid", bd=1)
+    hardware_entry.insert(0, hardware_id)
+    hardware_entry.configure(state="readonly", readonlybackground="#f7f9fa")
+    hardware_entry.pack(side="left", fill="x", expand=True, ipady=8)
+
+    def copy_hardware_id() -> None:
+        root.clipboard_clear()
+        root.clipboard_append(hardware_id)
+        status_var.set("Hardware ID copied. Send it to Zubair Abbas.")
+
+    tk.Button(hardware_row, text="Copy", command=copy_hardware_id, bg="#e7edef", fg="#17232d", relief="flat", padx=18, pady=8).pack(side="left", padx=(8, 0))
+    tk.Label(card, text="License key", bg="#ffffff", fg="#17232d", font=("Segoe UI Semibold", 10)).pack(anchor="w", padx=24, pady=(18, 5))
+    key_entry = tk.Entry(card, textvariable=key_var, font=("Consolas", 10), relief="solid", bd=1)
+    key_entry.pack(fill="x", padx=24, ipady=8)
+    status_label = tk.Label(card, textvariable=status_var, bg="#ffffff", fg="#64727d", font=("Segoe UI", 9), wraplength=510, justify="left")
+    status_label.pack(anchor="w", padx=24, pady=(10, 0))
+
+    def activate() -> None:
+        is_valid, result, _ = validate_license_key(key_var.get())
+        if not is_valid:
+            status_var.set(result)
+            status_label.configure(fg="#c0392b")
+            return
+        save_license_key(key_var.get())
+        activated["value"] = True
+        root.destroy()
+
+    tk.Button(card, text="Activate License", command=activate, bg="#00a89d", fg="#ffffff", activebackground="#008f86", activeforeground="#ffffff", relief="flat", font=("Segoe UI Semibold", 11), pady=10).pack(fill="x", padx=24, pady=(18, 24))
+    key_entry.bind("<Return>", lambda _event: activate())
+    key_entry.focus_set()
+    root.mainloop()
+    return activated["value"]
 
 
 class DownloaderApp(tk.Tk):
@@ -3785,5 +3896,7 @@ class GuiYtdlpLogger:
 
 
 if __name__ == "__main__":
+    if not require_valid_license():
+        raise SystemExit(0)
     app = DownloaderApp()
     app.mainloop()
