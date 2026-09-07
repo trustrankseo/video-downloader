@@ -7,7 +7,6 @@ import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -35,41 +34,29 @@ object PublicProfileBrowserScanner {
         val requestId = UUID.randomUUID().toString()
         val deferred = CompletableDeferred<List<String>>()
         pending[requestId] = deferred
-
-        val intent = Intent(context, PublicProfileScanActivity::class.java).apply {
+        context.startActivity(Intent(context, PublicProfileScanActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             putExtra(PublicProfileScanActivity.EXTRA_REQUEST_ID, requestId)
             putExtra(PublicProfileScanActivity.EXTRA_URL, inputUrl)
             putExtra(PublicProfileScanActivity.EXTRA_PLATFORM, platform.lowercase())
-        }
-        context.startActivity(intent)
-
+        })
         val result = withTimeoutOrNull(300_000) { deferred.await() }.orEmpty()
         pending.remove(requestId)
         return result
     }
 
     fun cancelActive() {
-        pending.values.forEach { deferred ->
-            if (!deferred.isCompleted) deferred.complete(emptyList())
-        }
+        pending.values.forEach { if (!it.isCompleted) it.complete(emptyList()) }
         pending.clear()
-        Handler(Looper.getMainLooper()).post {
-            activeActivity?.get()?.cancelFromEngine()
-        }
+        Handler(Looper.getMainLooper()).post { activeActivity?.get()?.cancelFromEngine() }
     }
 
-    internal fun attach(activity: PublicProfileScanActivity) {
-        activeActivity = WeakReference(activity)
-    }
-
+    internal fun attach(activity: PublicProfileScanActivity) { activeActivity = WeakReference(activity) }
     internal fun detach(activity: PublicProfileScanActivity) {
         if (activeActivity?.get() === activity) activeActivity = null
     }
-
     internal fun complete(requestId: String?, urls: List<String>) {
-        if (requestId.isNullOrBlank()) return
-        pending.remove(requestId)?.complete(urls.distinct().take(300))
+        if (!requestId.isNullOrBlank()) pending.remove(requestId)?.complete(urls.distinct().take(300))
     }
 }
 
@@ -78,6 +65,7 @@ class PublicProfileScanActivity : Activity() {
         const val EXTRA_REQUEST_ID = "profile_scan_request_id"
         const val EXTRA_URL = "profile_scan_url"
         const val EXTRA_PLATFORM = "profile_scan_platform"
+        private const val UA = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -85,7 +73,6 @@ class PublicProfileScanActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var signInButton: Button
     private lateinit var scanButton: Button
-
     private val found = linkedSetOf<String>()
     private var requestId: String? = null
     private var platform = ""
@@ -100,7 +87,6 @@ class PublicProfileScanActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         PublicProfileBrowserScanner.attach(this)
-
         requestId = intent.getStringExtra(EXTRA_REQUEST_ID)
         platform = intent.getStringExtra(EXTRA_PLATFORM).orEmpty().lowercase()
         targetUrl = normalizeUrl(intent.getStringExtra(EXTRA_URL).orEmpty())
@@ -108,50 +94,31 @@ class PublicProfileScanActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.rgb(7, 16, 30))
-            setPadding(28, 32, 28, 20)
+            setPadding(28, 30, 28, 20)
         }
-
-        val title = TextView(this).apply {
+        root.addView(TextView(this).apply {
             text = "Universal Downloader • ${platformName()}"
             textSize = 22f
             setTextColor(Color.WHITE)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-        }
-        root.addView(title, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-
+        })
         statusView = TextView(this).apply {
-            text = if (hasAuthenticatedSession()) {
-                "Saved ${platformName()} session found. Opening profile…"
-            } else {
-                "Opening ${platformName()} profile… Sign in once if requested."
-            }
+            text = if (hasAuthenticatedSession()) "Saved ${platformName()} login found. Opening profile…" else "Opening profile… Sign in once if needed."
             textSize = 15f
             setTextColor(Color.rgb(145, 161, 185))
-            setPadding(0, 10, 0, 16)
+            setPadding(0, 10, 0, 12)
         }
-        root.addView(statusView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        root.addView(statusView)
+        root.addView(ProgressBar(this).apply { isIndeterminate = true }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 8))
 
-        val progress = ProgressBar(this).apply { isIndeterminate = true }
-        root.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 8).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            bottomMargin = 12
-        })
-
-        webView = WebView(this).apply {
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.loadsImagesAutomatically = true
-            settings.mediaPlaybackRequiresUserGesture = true
-            settings.userAgentString = BROWSER_UA
-            setBackgroundColor(Color.rgb(13, 23, 40))
-
-            CookieManager.getInstance().apply {
-                setAcceptCookie(true)
-                setAcceptThirdPartyCookies(this@applyWebView, true)
-            }
-        }
-
-        // Kotlin label helper for setAcceptThirdPartyCookies(WebView,...)
+        webView = WebView(this)
+        webView.settings.javaScriptEnabled = true
+        webView.settings.domStorageEnabled = true
+        webView.settings.loadsImagesAutomatically = true
+        webView.settings.mediaPlaybackRequiresUserGesture = true
+        webView.settings.userAgentString = UA
+        webView.setBackgroundColor(Color.rgb(13, 23, 40))
+        CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
         webView.webViewClient = object : WebViewClient() {
@@ -165,45 +132,39 @@ class PublicProfileScanActivity : Activity() {
                 if (finished) return
                 val current = url.orEmpty()
                 if (!isHttpUrl(current)) return
-
                 CookieManager.getInstance().flush()
-                generation++
-                scanAttempt = 0
-                noGrowthRounds = 0
-                lastFoundCount = found.size
 
                 if (isLoginUrl(current)) {
                     returningFromLogin = true
-                    showLoginRequired()
+                    statusView.text = "Sign in on the official ${platformName()} page below. After login, the profile will reopen automatically."
                     return
                 }
 
                 if (returningFromLogin && hasAuthenticatedSession()) {
                     returningFromLogin = false
-                    statusView.text = "Signed in to ${platformName()}. Loading profile automatically…"
+                    statusView.text = "Signed in. Reopening requested profile…"
                     handler.postDelayed({ if (!finished) webView.loadUrl(targetUrl) }, 500)
                     return
                 }
 
                 if (!isTargetProfile(current)) {
                     if (hasAuthenticatedSession()) {
-                        statusView.text = "Session active. Loading requested profile…"
-                        handler.postDelayed({ if (!finished) webView.loadUrl(targetUrl) }, 450)
+                        statusView.text = "Login session active. Opening requested profile…"
+                        handler.postDelayed({ if (!finished) webView.loadUrl(targetUrl) }, 500)
                     } else {
-                        statusView.text = "Use SIGN IN once, then SCAN PROFILE."
+                        statusView.text = "Tap SIGN IN once, or SCAN PROFILE to try guest mode."
                     }
                     return
                 }
 
-                statusView.text = if (hasAuthenticatedSession()) {
-                    "Signed in • scanning ${platformName()} profile…"
-                } else {
-                    "Guest scan • sign in if downloads are blocked…"
-                }
+                generation++
+                scanAttempt = 0
+                noGrowthRounds = 0
+                lastFoundCount = found.size
+                statusView.text = if (hasAuthenticatedSession()) "Signed in • scanning profile…" else "Guest scan • sign in if downloads fail…"
                 handler.postDelayed({ scanDom(generation) }, 700)
             }
         }
-
         root.addView(webView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         signInButton = Button(this).apply {
@@ -213,13 +174,11 @@ class PublicProfileScanActivity : Activity() {
                 if (finished) return@setOnClickListener
                 returningFromLogin = true
                 found.clear()
-                statusView.text = "Sign in on the official ${platformName()} page below. Your password is not read by Universal Downloader."
+                statusView.text = "Opening official ${platformName()} login…"
                 webView.loadUrl(loginUrl())
             }
         }
-        root.addView(signInButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = 12
-        })
+        root.addView(signInButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 10 })
 
         scanButton = Button(this).apply {
             text = "SCAN PROFILE"
@@ -228,34 +187,24 @@ class PublicProfileScanActivity : Activity() {
                 if (finished) return@setOnClickListener
                 found.clear()
                 returningFromLogin = false
-                statusView.text = if (hasAuthenticatedSession()) {
-                    "Using saved ${platformName()} session…"
-                } else {
-                    "Scanning profile in guest mode…"
-                }
+                statusView.text = if (hasAuthenticatedSession()) "Using saved login session…" else "Trying guest mode…"
                 CookieManager.getInstance().flush()
                 webView.loadUrl(targetUrl)
             }
         }
-        root.addView(scanButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = 8
-        })
+        root.addView(scanButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 8 })
 
-        val cancelButton = Button(this).apply {
+        root.addView(Button(this).apply {
             text = "CANCEL"
             setOnClickListener { completeAndFinish() }
-        }
-        root.addView(cancelButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = 8
-        })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 8 })
 
-        val note = TextView(this).apply {
-            text = "One-time platform sign-in is stored only as the official WebView session/cookies on this device. Universal Downloader does not read or store your ${platformName()} password."
+        root.addView(TextView(this).apply {
+            text = "Your password is entered only on the official ${platformName()} webpage. Universal Downloader keeps the platform WebView session/cookies on this device so you normally sign in only once."
             textSize = 12f
             setTextColor(Color.rgb(85, 221, 247))
-            setPadding(0, 12, 0, 0)
-        }
-        root.addView(note, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            setPadding(0, 10, 0, 0)
+        })
 
         setContentView(root)
         webView.loadUrl(targetUrl)
@@ -267,25 +216,16 @@ class PublicProfileScanActivity : Activity() {
         val script = """
             (function() {
               try {
-                const p = '$p';
-                const href = (location.href || '').toLowerCase();
-                const links = Array.from(document.querySelectorAll('a[href]'))
-                  .map(a => a.href || '')
-                  .filter(h => p === 'instagram'
-                    ? /instagram\.com\/(reel|p)\/[A-Za-z0-9_-]+/i.test(h)
-                    : /tiktok\.com\/@[^/]+\/video\/\d+/i.test(h));
-                const hasPassword = !!document.querySelector('input[type="password"]');
-                const bodyText = (document.body && document.body.innerText || '').toLowerCase();
-                const loginByUrl = p === 'instagram'
-                  ? href.includes('/accounts/login')
-                  : href.includes('/login');
-                const loginByText = p === 'instagram'
-                  ? (bodyText.includes('log in') && bodyText.includes('instagram') && links.length === 0)
-                  : (bodyText.includes('log in to tiktok') && links.length === 0);
-                return JSON.stringify({links:Array.from(new Set(links)), login:(loginByUrl || hasPassword || loginByText)});
-              } catch (e) {
-                return JSON.stringify({links:[], login:false});
-              }
+                const p='$p', href=(location.href||'').toLowerCase();
+                const links=Array.from(document.querySelectorAll('a[href]')).map(a=>a.href||'').filter(h=>p==='instagram'
+                  ? /instagram\.com\/(reel|p)\/[A-Za-z0-9_-]+/i.test(h)
+                  : /tiktok\.com\/@[^/]+\/video\/\d+/i.test(h));
+                const pw=!!document.querySelector('input[type="password"]');
+                const body=(document.body&&document.body.innerText||'').toLowerCase();
+                const login=p==='instagram' ? href.includes('/accounts/login') : href.includes('/login');
+                const blocked=p==='instagram' ? (body.includes('log in')&&body.includes('instagram')&&links.length===0) : (body.includes('log in to tiktok')&&links.length===0);
+                return JSON.stringify({links:Array.from(new Set(links)),login:(login||pw||blocked)});
+              } catch(e) { return JSON.stringify({links:[],login:false}); }
             })();
         """.trimIndent()
 
@@ -294,52 +234,34 @@ class PublicProfileScanActivity : Activity() {
             val decoded = runCatching { JSONTokener(raw).nextValue() as? String }.getOrNull().orEmpty()
             val obj = runCatching { JSONObject(decoded) }.getOrNull()
             val links = obj?.optJSONArray("links")
-            if (links != null) {
-                for (i in 0 until links.length()) {
-                    val link = links.optString(i).trim()
-                    if (isValidVideoLink(link)) found += cleanVideoLink(link)
-                }
+            if (links != null) for (i in 0 until links.length()) {
+                val link = links.optString(i).trim()
+                if (isValidVideoLink(link)) found += link.substringBefore('#')
             }
 
             if (obj?.optBoolean("login", false) == true && !hasAuthenticatedSession()) {
-                showLoginRequired()
+                statusView.text = "${platformName()} is asking for sign-in. Tap SIGN IN above, log in once, then scanning will resume."
                 return@evaluateJavascript
             }
 
             scanAttempt++
             if (found.size == lastFoundCount) noGrowthRounds++ else noGrowthRounds = 0
             lastFoundCount = found.size
-
-            statusView.text = when {
-                found.isNotEmpty() -> "Found ${found.size} videos…"
-                hasAuthenticatedSession() -> "Signed in • scanning… $scanAttempt/12"
-                else -> "Guest scan… $scanAttempt/12"
-            }
+            statusView.text = if (found.isEmpty()) "Scanning… $scanAttempt/12" else "Found ${found.size} videos…"
 
             if (scanAttempt < 12 && found.size < 300 && noGrowthRounds < 4) {
-                webView.evaluateJavascript("window.scrollBy(0, Math.max(window.innerHeight * 2.5, 1800));", null)
+                webView.evaluateJavascript("window.scrollBy(0, Math.max(window.innerHeight*2.5,1800));", null)
                 handler.postDelayed({ scanDom(expectedGeneration) }, 950)
-            } else {
-                completeAndFinish()
-            }
+            } else completeAndFinish()
         }
     }
 
-    private fun showLoginRequired() {
-        if (finished) return
-        statusView.text = "${platformName()} requires sign-in. Tap SIGN IN, complete login once, then the profile will reopen automatically."
-        signInButton.visibility = View.VISIBLE
-        scanButton.visibility = View.VISIBLE
-    }
-
     private fun hasAuthenticatedSession(): Boolean {
-        val cookieManager = CookieManager.getInstance()
         val cookies = when (platform) {
-            "instagram" -> cookieManager.getCookie("https://www.instagram.com/").orEmpty()
-            "tiktok" -> cookieManager.getCookie("https://www.tiktok.com/").orEmpty()
+            "instagram" -> CookieManager.getInstance().getCookie("https://www.instagram.com/").orEmpty()
+            "tiktok" -> CookieManager.getInstance().getCookie("https://www.tiktok.com/").orEmpty()
             else -> ""
         }.lowercase()
-
         return when (platform) {
             "instagram" -> "sessionid=" in cookies || "ds_user_id=" in cookies
             "tiktok" -> "sessionid=" in cookies || "sessionid_ss=" in cookies || "sid_tt=" in cookies
@@ -347,70 +269,40 @@ class PublicProfileScanActivity : Activity() {
         }
     }
 
-    private fun loginUrl(): String = when (platform) {
-        "instagram" -> "https://www.instagram.com/accounts/login/"
-        "tiktok" -> "https://www.tiktok.com/login"
-        else -> targetUrl
+    private fun loginUrl() = if (platform == "instagram") "https://www.instagram.com/accounts/login/" else "https://www.tiktok.com/login"
+    private fun isLoginUrl(raw: String) = if (platform == "instagram") "instagram.com/accounts/login" in raw.lowercase() else "tiktok.com/login" in raw.lowercase()
+
+    private fun isTargetProfile(raw: String): Boolean = runCatching {
+        val target = URL(targetUrl)
+        val current = URL(raw)
+        val th = target.host.removePrefix("www.").lowercase()
+        val ch = current.host.removePrefix("www.").lowercase()
+        if (ch != th && !ch.endsWith(".$th")) return@runCatching false
+        val tp = target.path.trimEnd('/').lowercase()
+        val cp = current.path.trimEnd('/').lowercase()
+        cp == tp || cp.startsWith("$tp/")
+    }.getOrDefault(false)
+
+    private fun isValidVideoLink(raw: String): Boolean = when (platform) {
+        "instagram" -> Regex("https?://(?:www\\.)?instagram\\.com/(reel|p)/[A-Za-z0-9_-]+", RegexOption.IGNORE_CASE).containsMatchIn(raw)
+        "tiktok" -> Regex("https?://(?:www\\.)?tiktok\\.com/@[^/]+/video/\\d+", RegexOption.IGNORE_CASE).containsMatchIn(raw)
+        else -> false
     }
 
-    private fun isLoginUrl(raw: String): Boolean {
-        val value = raw.lowercase()
-        return when (platform) {
-            "instagram" -> "instagram.com/accounts/login" in value
-            "tiktok" -> "tiktok.com/login" in value
-            else -> false
-        }
-    }
-
-    private fun isTargetProfile(raw: String): Boolean {
-        return runCatching {
-            val target = URL(targetUrl)
-            val current = URL(raw)
-            val targetHost = target.host.removePrefix("www.").lowercase()
-            val currentHost = current.host.removePrefix("www.").lowercase()
-            if (currentHost != targetHost && !currentHost.endsWith(".$targetHost")) return@runCatching false
-            val targetPath = target.path.trimEnd('/').lowercase()
-            val currentPath = current.path.trimEnd('/').lowercase()
-            currentPath == targetPath || currentPath.startsWith("$targetPath/")
-        }.getOrDefault(false)
-    }
-
-    private fun isValidVideoLink(raw: String): Boolean {
-        val value = raw.lowercase()
-        return when (platform) {
-            "instagram" -> Regex("https?://(?:www\\.)?instagram\\.com/(reel|p)/[A-Za-z0-9_-]+", RegexOption.IGNORE_CASE).containsMatchIn(value)
-            "tiktok" -> Regex("https?://(?:www\\.)?tiktok\\.com/@[^/]+/video/\\d+", RegexOption.IGNORE_CASE).containsMatchIn(value)
-            else -> false
-        }
-    }
-
-    private fun cleanVideoLink(raw: String): String = raw.substringBefore('#')
-
-    private fun platformName(): String = when (platform) {
-        "instagram" -> "Instagram"
-        "tiktok" -> "TikTok"
-        else -> "Profile"
-    }
-
-    private fun isHttpUrl(raw: String): Boolean {
-        val value = raw.lowercase()
-        return value.startsWith("https://") || value.startsWith("http://")
-    }
-
+    private fun platformName() = if (platform == "instagram") "Instagram" else "TikTok"
+    private fun isHttpUrl(raw: String) = raw.startsWith("https://", true) || raw.startsWith("http://", true)
     private fun normalizeUrl(raw: String): String {
-        val value = raw.trim()
+        val v = raw.trim()
         return when {
-            value.startsWith("https://", true) || value.startsWith("http://", true) -> value
-            value.startsWith("://") -> "https$value"
-            value.startsWith("//") -> "https:$value"
-            value.startsWith("www.") || value.startsWith("instagram.com", true) || value.startsWith("tiktok.com", true) -> "https://$value"
-            else -> value
+            v.startsWith("https://", true) || v.startsWith("http://", true) -> v
+            v.startsWith("://") -> "https$v"
+            v.startsWith("//") -> "https:$v"
+            v.startsWith("www.") || v.startsWith("instagram.com", true) || v.startsWith("tiktok.com", true) -> "https://$v"
+            else -> v
         }
     }
 
-    internal fun cancelFromEngine() {
-        completeAndFinish()
-    }
+    internal fun cancelFromEngine() = completeAndFinish()
 
     private fun completeAndFinish() {
         if (finished) return
@@ -425,19 +317,12 @@ class PublicProfileScanActivity : Activity() {
         finish()
     }
 
-    override fun onBackPressed() {
-        completeAndFinish()
-    }
-
+    override fun onBackPressed() { completeAndFinish() }
     override fun onDestroy() {
         PublicProfileBrowserScanner.detach(this)
         if (!finished) PublicProfileBrowserScanner.complete(requestId, found.toList())
         handler.removeCallbacksAndMessages(null)
         if (::webView.isInitialized) runCatching { webView.destroy() }
         super.onDestroy()
-    }
-
-    private companion object {
-        const val BROWSER_UA = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
     }
 }
