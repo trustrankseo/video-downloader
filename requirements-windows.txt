@@ -1,0 +1,6 @@
+yt-dlp[default]>=2026.8.19
+imageio-ffmpeg>=0.6.0
+sv-ttk>=2.6.1
+pillow>=11.0
+ddgs>=9.0
+pyinstaller>=6.15

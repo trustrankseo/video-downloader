@@ -1,0 +1,9 @@
+Film LUT collection
+Source: https://github.com/YahiaAngelo/Film-Luts
+Downloaded: 2026-09-06
+Files: luts/colorslide/agfa_precisa_100.cube,
+       luts/colorslide/fuji_astia_100_generic.cube,
+       luts/colorslide/fuji_astia_100f.cube,
+       luts/colorslide/fuji_fp_100c.cube
+License: MIT, reproduced in LICENSE.txt.
+These are third-party film colour looks, not CapCut assets.

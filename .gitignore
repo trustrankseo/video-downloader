@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+*.log
+
+# Local Windows build output
+build/
+dist/
+release/
+
+# Runtime downloads and local state
+yt_dlp_runtime*/
+
+# Private seller/admin utilities are not part of the buyer app source.
+admin_panel.py
+admin_requirements.txt
+start_admin_panel.bat
+update_app.py
+update_cookies_feature.py
