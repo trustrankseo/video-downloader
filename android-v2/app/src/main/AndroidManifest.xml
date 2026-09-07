@@ -7,6 +7,8 @@
         android:name=".DownloaderApp"
         android:allowBackup="true"
         android:extractNativeLibs="true"
+        android:icon="@drawable/ic_universal_logo"
+        android:roundIcon="@drawable/ic_universal_logo"
         android:label="Universal Downloader"
         android:requestLegacyExternalStorage="true"
         android:supportsRtl="true"
