@@ -8,7 +8,9 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -114,6 +116,20 @@ class FacebookScanActivity : Activity() {
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val target = request?.url?.toString().orEmpty()
+                    val scheme = request?.url?.scheme?.lowercase().orEmpty()
+
+                    // Facebook frequently tries to redirect signed-out WebViews to fb://profile/...
+                    // which is an app-only deep link. Never let the WebView navigate to it.
+                    if (scheme.isNotBlank() && scheme != "http" && scheme != "https") {
+                        if (request?.isForMainFrame == true) {
+                            pageGeneration++
+                            scanAttempt = 0
+                            statusView.text = "Facebook app-only link skipped. Trying public web page…"
+                            handler.postDelayed({ if (!finished) loadNextCandidate() }, 250)
+                        }
+                        return true
+                    }
+
                     if (isLoginUrl(target)) {
                         stopForLoginWall()
                         return true
@@ -121,10 +137,31 @@ class FacebookScanActivity : Activity() {
                     return false
                 }
 
+                override fun onReceivedError(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                    error: WebResourceError?
+                ) {
+                    if (!finished && request?.isForMainFrame == true && error?.errorCode == ERROR_UNSUPPORTED_SCHEME) {
+                        pageGeneration++
+                        scanAttempt = 0
+                        statusView.text = "Unsupported Facebook app link skipped. Trying another public page…"
+                        handler.postDelayed({ if (!finished) loadNextCandidate() }, 250)
+                        return
+                    }
+                    super.onReceivedError(view, request, error)
+                }
+
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     if (finished) return
                     val current = normalizeUrl(url.orEmpty())
+                    if (!isHttpUrl(current)) {
+                        pageGeneration++
+                        statusView.text = "Facebook app-only redirect skipped."
+                        handler.postDelayed({ if (!finished) loadNextCandidate() }, 250)
+                        return
+                    }
                     if (isLoginUrl(current)) {
                         stopForLoginWall()
                         return
@@ -221,7 +258,10 @@ class FacebookScanActivity : Activity() {
 
     private fun loadNextCandidate() {
         if (finished) return
-        val next = candidates.removeFirstOrNull()
+        var next = candidates.removeFirstOrNull()
+        while (next != null && !isHttpUrl(next)) {
+            next = candidates.removeFirstOrNull()
+        }
         if (next == null) {
             completeAndFinish()
             return
@@ -235,7 +275,7 @@ class FacebookScanActivity : Activity() {
     }
 
     private fun addFacebookVariants(raw: String) {
-        if (isLoginUrl(raw)) return
+        if (isLoginUrl(raw) || !isHttpUrl(raw)) return
         val base = facebookBase(raw) ?: return
         val variants = listOf(
             "$base/reels/",
@@ -250,8 +290,11 @@ class FacebookScanActivity : Activity() {
 
     private fun stopForLoginWall() {
         if (finished) return
+        pageGeneration++
+        runCatching { webView.stopLoading() }
+        if (::webView.isInitialized) webView.visibility = View.INVISIBLE
         statusView.text = "Facebook requires login for this Page/Profile. Guest scan stopped."
-        handler.postDelayed({ completeAndFinish() }, 450)
+        handler.postDelayed({ completeAndFinish() }, 500)
     }
 
     private fun isLoginUrl(raw: String): Boolean {
@@ -260,6 +303,11 @@ class FacebookScanActivity : Activity() {
             "/login.php" in value ||
             "checkpoint" in value ||
             "recover/initiate" in value
+    }
+
+    private fun isHttpUrl(raw: String): Boolean {
+        val value = raw.trim().lowercase()
+        return value.startsWith("https://") || value.startsWith("http://")
     }
 
     private fun webViewUrlSafe(): String? = if (::webView.isInitialized) webView.url else null
