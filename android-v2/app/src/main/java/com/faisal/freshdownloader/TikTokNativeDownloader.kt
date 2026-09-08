@@ -7,11 +7,6 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
-/**
- * TikTok MP4 fallback that does not depend on yt-dlp browser impersonation.
- * It reuses the user's existing WebView session, reads TikTok's public page data,
- * resolves a direct media URL, and saves the MP4 with Android networking.
- */
 class TikTokNativeDownloader(
     private val context: Context,
     private val outputDir: File,
@@ -19,16 +14,25 @@ class TikTokNativeDownloader(
     private val isCancelled: () -> Boolean,
     private val onConnection: (HttpURLConnection?) -> Unit
 ) {
-    fun download(videoUrl: String, onProgress: (Float, Long) -> Unit): String {
+    suspend fun download(videoUrl: String, onProgress: (Float, Long) -> Unit): String {
         if (isCancelled()) throw CancellationException("Cancelled")
 
-        val page = fetchText(videoUrl)
-        if (isCancelled()) throw CancellationException("Cancelled")
+        // First resolve from TikTok's rendered WebView page. This sees the same signed-in
+        // session and JS-rendered <video>/resource URLs that plain HttpURLConnection does not.
+        var mediaUrl = TikTokWebViewMediaResolver.resolve(context, videoUrl)
 
-        val mediaUrl = extractMediaUrl(page)
-            ?: throw IllegalStateException(
-                "TIKTOK_MEDIA_URL_NOT_FOUND: TikTok page loaded, but no playable MP4 address was present in the returned page data."
+        // Fallback to returned HTML only if the rendered page did not expose a media resource.
+        if (mediaUrl.isNullOrBlank()) {
+            val page = fetchText(videoUrl)
+            if (isCancelled()) throw CancellationException("Cancelled")
+            mediaUrl = extractMediaUrl(page)
+        }
+
+        if (mediaUrl.isNullOrBlank()) {
+            throw IllegalStateException(
+                "TIKTOK_MEDIA_URL_NOT_FOUND: TikTok rendered the video page, but no playable MP4/CDN media URL became available to this signed-in session."
             )
+        }
 
         val videoId = Regex("/video/(\\d+)", RegexOption.IGNORE_CASE)
             .find(videoUrl)?.groupValues?.getOrNull(1)
@@ -41,7 +45,7 @@ class TikTokNativeDownloader(
         val connection = open(mediaUrl).apply {
             instanceFollowRedirects = true
             connectTimeout = 15_000
-            readTimeout = 30_000
+            readTimeout = 45_000
             requestMethod = "GET"
             setRequestProperty("User-Agent", userAgent)
             setRequestProperty("Referer", videoUrl)
@@ -53,6 +57,11 @@ class TikTokNativeDownloader(
             val code = connection.responseCode
             if (code !in 200..299) {
                 throw IllegalStateException("TIKTOK_MEDIA_HTTP_$code: TikTok media server rejected the download request.")
+            }
+
+            val type = connection.contentType.orEmpty().lowercase()
+            if (type.contains("text/html")) {
+                throw IllegalStateException("TIKTOK_MEDIA_NOT_VIDEO: TikTok returned an HTML page instead of video media.")
             }
 
             val total = connection.contentLengthLong.coerceAtLeast(-1L)
@@ -67,15 +76,17 @@ class TikTokNativeDownloader(
                         output.write(buffer, 0, read)
                         copied += read
                         if (total > 0) {
-                            val progress = ((copied.toDouble() / total.toDouble()) * 100.0)
-                                .coerceIn(0.0, 100.0)
-                                .toFloat()
-                            onProgress(progress, 0L)
+                            onProgress(
+                                ((copied.toDouble() / total.toDouble()) * 100.0)
+                                    .coerceIn(0.0, 100.0).toFloat(),
+                                0L
+                            )
                         }
                     }
                 }
             }
 
+            if (copied <= 0L) throw IllegalStateException("TIKTOK_EMPTY_MEDIA: TikTok returned an empty media response.")
             if (isCancelled()) throw CancellationException("Cancelled")
             if (finalFile.exists()) finalFile.delete()
             if (!partFile.renameTo(finalFile)) {
@@ -128,31 +139,21 @@ class TikTokNativeDownloader(
             .replace("\\u002F", "/", ignoreCase = true)
             .replace("\\u0026", "&", ignoreCase = true)
             .replace("\\u003A", ":", ignoreCase = true)
-            .replace("\\u003D", "=", ignoreCase = true)
             .replace("\\/", "/")
 
-        // TikTok currently uses more than one hydration schema. In newer web payloads
-        // playAddr/downloadAddr may be arrays instead of a single string.
         val patterns = listOf(
-            Regex("\\\"playAddr\\\"\\s*:\\s*\\[\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
-            Regex("\\\"downloadAddr\\\"\\s*:\\s*\\[\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
             Regex("\\\"playAddr\\\"\\s*:\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
             Regex("\\\"downloadAddr\\\"\\s*:\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
-            Regex("\\\"play_addr\\\"[\\s\\S]{0,2000}?\\\"url_list\\\"\\s*:\\s*\\[\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
-            Regex("\\\"playAddr\\\"[\\s\\S]{0,2000}?\\\"urlList\\\"\\s*:\\s*\\[\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
-            Regex("\\\"PlayAddr\\\"[\\s\\S]{0,2000}?\\\"UrlList\\\"\\s*:\\s*\\[\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
-            Regex("\\\"playAddr\\\"[\\s\\S]{0,2000}?\\\"src\\\"\\s*:\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
-            Regex("<video[^>]+src=[\\\"'](https?://[^\\\"']+)[\\\"']", RegexOption.IGNORE_CASE),
-            Regex("(https?://[^\\\"'<>\\s]+(?:mime_type=video_mp4|mime_type=video%2Fmp4)[^\\\"'<>\\s]*)", RegexOption.IGNORE_CASE),
-            Regex("(https?://[^\\\"'<>\\s]*(?:tiktokcdn|byteoversea|ibytedtos)[^\\\"'<>\\s]*/video/[^\\\"'<>\\s]+)", RegexOption.IGNORE_CASE)
+            Regex("\\\"playAddr\\\"\\s*:\\s*\\[\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
+            Regex("\\\"downloadAddr\\\"\\s*:\\s*\\[\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
+            Regex("\\\"urlList\\\"\\s*:\\s*\\[\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
+            Regex("\\\"UrlList\\\"\\s*:\\s*\\[\\s*\\\"(https?://[^\\\"]+)\\\"", RegexOption.IGNORE_CASE),
+            Regex("<video[^>]+src=[\\\"'](https?://[^\\\"']+)[\\\"']", RegexOption.IGNORE_CASE)
         )
 
         for (pattern in patterns) {
             val candidate = pattern.find(html)?.groupValues?.getOrNull(1)?.trim()
-            if (!candidate.isNullOrBlank()) {
-                val decoded = decodeUrl(candidate)
-                if (decoded.startsWith("http://") || decoded.startsWith("https://")) return decoded
-            }
+            if (!candidate.isNullOrBlank()) return decodeUrl(candidate)
         }
         return null
     }
