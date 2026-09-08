@@ -11,8 +11,8 @@ android {
         applicationId = "com.faisal.freshdownloader"
         minSdk = 29
         targetSdk = 35
-        versionCode = 23
-        versionName = "1.3.9"
+        versionCode = 26
+        versionName = "1.4.2"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -81,6 +81,8 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("com.android.billingclient:billing-ktx:7.1.1")
+    implementation("com.android.installreferrer:installreferrer:2.2")
 
     val youtubedlAndroid = "0.18.1"
     implementation("io.github.junkfood02.youtubedl-android:library:$youtubedlAndroid")
