@@ -15,14 +15,6 @@
         android:theme="@style/Theme.FreshDownloader">
 
         <activity
-            android:name=".FacebookScanActivity"
-            android:exported="false" />
-
-        <activity
-            android:name=".PublicProfileScanActivity"
-            android:exported="false" />
-
-        <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
