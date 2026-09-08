@@ -33,6 +33,8 @@ jobs:
         run: python3 ui_import_fix.py
       - name: Apply appearance theme patch
         run: python3 appearance_build.py
+      - name: Apply YouTube channel reliability fix
+        run: python3 youtube_channel_fix.py
       - run: gradle :app:assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
         with:
