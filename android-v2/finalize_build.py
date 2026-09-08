@@ -1,16 +1,14 @@
 from pathlib import Path
 
-# Native-only release metadata.
+# v1.4.2 UI refresh: keep the user-facing version name while bumping the
+# installable Android versionCode so this can update over the previous build.
 g = Path('app/build.gradle.kts')
 s = g.read_text()
-for old_code in ('versionCode = 23', 'versionCode = 24', 'versionCode = 25'):
-    s = s.replace(old_code, 'versionCode = 26')
+for old_code in ('versionCode = 23', 'versionCode = 24', 'versionCode = 25', 'versionCode = 26'):
+    s = s.replace(old_code, 'versionCode = 27')
 for old_name in ('versionName = "1.3.9"', 'versionName = "1.4.0"', 'versionName = "1.4.1"'):
     s = s.replace(old_name, 'versionName = "1.4.2"')
 
-# Keep Play Billing classes compilable for the future Play Store build. Install
-# Referrer is used when the app is installed from Google Play; direct installs
-# continue normally when the service is unavailable.
 needle = '    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")\n'
 if needle not in s:
     raise SystemExit('dependency anchor not found')
@@ -26,7 +24,9 @@ g.write_text(s)
 p = Path('app/src/main/java/com/faisal/freshdownloader/MainActivity.kt')
 t = p.read_text()
 
-# Make native-only positioning explicit in the visible UI.
+# The new AppMenuShell owns the hamburger menu and routes to each tool page.
+t = t.replace('private fun DownloaderScreen(vm: DownloaderViewModel = viewModel())', 'fun DownloaderScreen(vm: DownloaderViewModel = viewModel())')
+t = t.replace('DownloaderScreen()', 'AppMenuShell()', 1)
 t = t.replace('Premium multi-platform downloader', 'Native multi-platform downloader')
 
 # Capture referral deep links even when the activity is already open.
@@ -46,7 +46,7 @@ if 'override fun onNewIntent(intent: android.content.Intent)' not in t:
         1
     )
 
-# Clipboard helper for fully native quick actions.
+# Clipboard helper for compact download-page quick actions.
 old = '''    var collectionUrl by remember { mutableStateOf("") }
     var preset by remember { mutableStateOf(FormatPreset.VIDEO_MP4) }
 
@@ -62,13 +62,20 @@ if old not in t:
     raise SystemExit('DownloaderScreen state anchor not found')
 t = t.replace(old, new, 1)
 
-# Add native-mode notice, quick actions, and v4.2 referral surface.
-old = '''            item { PlatformStrip() }
+# Remove the large hero/status card and platform strip from the main page.
+# Referral, Premium, Device, About, Contact and Reporting now live in the menu.
+old = '''            item {
+                HeaderCard(
+                    running = ui.running,
+                    status = ui.statusLine,
+                    onUpdateEngine = vm::updateEngine
+                )
+            }
+
+            item { PlatformStrip() }
             item { ModeSelector(selected = tab, onSelect = { tab = it }) }
 '''
-new = '''            item { PlatformStrip() }
-            item { NativeModeNotice() }
-            item { ModeSelector(selected = tab, onSelect = { tab = it }) }
+new = '''            item { ModeSelector(selected = tab, onSelect = { tab = it }) }
             item {
                 NativeQuickActions(
                     onPaste = {
@@ -90,13 +97,12 @@ new = '''            item { PlatformStrip() }
                     }
                 )
             }
-            item { ReferralCard() }
 '''
 if old not in t:
-    raise SystemExit('native quick actions anchor not found')
+    raise SystemExit('clean home anchor not found')
 t = t.replace(old, new, 1)
 
-# Add a retry-all-failed native queue action.
+# Retry-all-failed queue action.
 old = '''            if (ui.tasks.isEmpty()) {
                 item { EmptyState(vm.outputPath()) }
             } else {
@@ -130,44 +136,8 @@ if old not in t:
     raise SystemExit('retry failed anchor not found')
 t = t.replace(old, new, 1)
 
-# Append native-only informational/quick-action composables once.
-if 'private fun NativeModeNotice()' not in t:
+if 'private fun NativeQuickActions(' not in t:
     t += '''
-
-@Composable
-private fun NativeModeNotice() {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = CardDark.copy(alpha = 0.78f),
-        border = BorderStroke(1.dp, Cyan.copy(alpha = 0.22f))
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = RoundedCornerShape(99.dp),
-                color = Success.copy(alpha = 0.14f)
-            ) {
-                Text(
-                    "NATIVE",
-                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                    color = Success,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.ExtraBold
-                )
-            }
-            Spacer(Modifier.width(10.dp))
-            Text(
-                "No embedded browser • direct public-link processing • local download queue",
-                modifier = Modifier.weight(1f),
-                color = Color.White.copy(alpha = 0.76f),
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-    }
-}
 
 @Composable
 private fun NativeQuickActions(
@@ -198,9 +168,7 @@ private fun NativeQuickActions(
 
 p.write_text(t)
 
-# Activate a pending referral only after the referred install proves real use by
-# completing one successful download. This grants a local bonus trial; no raw
-# hardware identifiers are used.
+# Activate a pending referral only after one successful download.
 v = Path('app/src/main/java/com/faisal/freshdownloader/DownloaderViewModel.kt')
 u = v.read_text()
 success_old = '''        } else if (result.isSuccess) {
@@ -215,8 +183,6 @@ success_new = '''        } else if (result.isSuccess) {
 if success_old not in u:
     raise SystemExit('referral success hook anchor not found')
 u = u.replace(success_old, success_new, 1)
-
-# Friendly native-only profile messaging.
 u = u.replace(
     'TikTok profile discovery could not enumerate this account in guest mode. Direct public TikTok video links can still be tried.',
     'TikTok profile discovery is unavailable in the native-only build. Try direct public video links in Single or Bulk mode.'
