@@ -1,10 +1,14 @@
 from pathlib import Path
 
-# v1.4.4: YouTube channel fetch reliability + visible discovery state.
+# v1.4.5: YouTube channel fetch reliability.
+# A channel root now discovers Videos + Shorts + Streams instead of only /videos.
+# Tracking params such as ?si= are removed from channel share URLs before tab discovery.
 g = Path('app/build.gradle.kts')
 s = g.read_text()
-s = s.replace('versionCode = 28', 'versionCode = 29')
-s = s.replace('versionName = "1.4.3"', 'versionName = "1.4.4"')
+s = s.replace('versionCode = 28', 'versionCode = 30')
+s = s.replace('versionCode = 29', 'versionCode = 30')
+s = s.replace('versionName = "1.4.3"', 'versionName = "1.4.5"')
+s = s.replace('versionName = "1.4.4"', 'versionName = "1.4.5"')
 g.write_text(s)
 
 # Make YouTube channel/handle discovery deterministic and accept flat-playlist IDs.
@@ -15,7 +19,28 @@ old = '''        val extractorAttempt = withContext(Dispatchers.IO) {
             runCatching { discoverWithYtDlp(targetUrl) }
         }
 '''
-new = '''        val discoveryUrl = normalizeYouTubeCollectionUrl(targetUrl)
+new = '''        val discoveryUrls = youtubeCollectionCandidates(targetUrl)
+        val extractorAttempt = withContext(Dispatchers.IO) {
+            runCatching {
+                val combined = linkedSetOf<String>()
+                var firstFailure: Throwable? = null
+                for (candidate in discoveryUrls) {
+                    if (cancelRequested) throw CancellationException("Cancelled")
+                    try {
+                        combined += discoverWithYtDlp(candidate)
+                    } catch (failure: Throwable) {
+                        if (firstFailure == null) firstFailure = failure
+                    }
+                    if (combined.size >= 500) break
+                }
+                if (combined.isEmpty() && firstFailure != null) throw firstFailure
+                combined.take(500)
+            }
+        }
+'''
+if old not in t:
+    # Older v1.4.4 patch may already have the single discoveryUrl form.
+    old = '''        val discoveryUrl = normalizeYouTubeCollectionUrl(targetUrl)
         val extractorAttempt = withContext(Dispatchers.IO) {
             runCatching { discoverWithYtDlp(discoveryUrl) }
         }
@@ -26,9 +51,8 @@ t = t.replace(old, new, 1)
 
 old = '        request.addOption("--print", "%(webpage_url)s")\n'
 new = '        request.addOption("--print", if (isYouTubeUrl(url)) "%(id)s" else "%(webpage_url)s")\n'
-if old not in t:
-    raise SystemExit('yt-dlp print anchor not found')
-t = t.replace(old, new, 1)
+if old in t:
+    t = t.replace(old, new, 1)
 
 old = '''            response.out
                 .lineSequence()
@@ -54,9 +78,8 @@ new = '''            val youtube = isYouTubeUrl(url)
                 .take(500)
                 .toList()
 '''
-if old not in t:
-    raise SystemExit('yt-dlp output parser anchor not found')
-t = t.replace(old, new, 1)
+if old in t:
+    t = t.replace(old, new, 1)
 
 anchor = '''    private fun isFacebookUrl(url: String): Boolean {
 '''
@@ -65,29 +88,59 @@ helper = '''    private fun isYouTubeUrl(url: String): Boolean {
         return "youtube.com" in lower || "youtu.be" in lower
     }
 
-    private fun normalizeYouTubeCollectionUrl(url: String): String {
-        if (!isYouTubeUrl(url)) return url
-        val clean = normalizeInputUrl(url).trimEnd('/')
-        val parsed = runCatching { URL(clean) }.getOrNull() ?: return clean
-        if (!parsed.query.isNullOrBlank()) return clean
+    private fun youtubeCollectionCandidates(url: String): List<String> {
+        if (!isYouTubeUrl(url)) return listOf(url)
 
+        val normalized = normalizeInputUrl(url)
+        val parsed = runCatching { URL(normalized) }.getOrNull() ?: return listOf(normalized)
+        val host = parsed.host.lowercase()
         val path = parsed.path.trim('/')
-        if (path.isBlank()) return clean
         val lower = path.lowercase()
-        if (lower.endsWith("/videos") || lower.endsWith("/shorts") || lower.endsWith("/streams")) return clean
 
-        val isChannelRoot = path.startsWith("@") ||
-            lower.startsWith("channel/") ||
-            lower.startsWith("c/") ||
-            lower.startsWith("user/")
-        return if (isChannelRoot) "$clean/videos" else clean
+        // Playlists are already complete collections and should not be rewritten.
+        if (lower == "playlist" || parsed.query.orEmpty().contains("list=")) {
+            return listOf(normalized)
+        }
+
+        // A normal video/Short URL is a single item, not a channel root.
+        if (host == "youtu.be" || lower.startsWith("watch") || lower.startsWith("shorts/")) {
+            return listOf(normalized)
+        }
+
+        val parts = path.split('/').filter { it.isNotBlank() }
+        if (parts.isEmpty()) return listOf(normalized)
+
+        val isChannel = parts.first().startsWith("@") ||
+            parts.first().lowercase() in setOf("channel", "c", "user")
+        if (!isChannel) return listOf(normalized)
+
+        // Strip share/tracking parameters (for example ?si=...) from channel URLs.
+        // Also remove an existing tab suffix so the app can merge all public tabs.
+        val baseParts = if (parts.last().lowercase() in setOf("videos", "shorts", "streams", "featured")) {
+            parts.dropLast(1)
+        } else {
+            parts
+        }
+        val basePath = baseParts.joinToString("/")
+        val base = "${parsed.protocol}://${parsed.host}/$basePath"
+
+        return listOf(
+            "$base/videos",
+            "$base/shorts",
+            "$base/streams"
+        )
     }
 
 '''
-if helper not in t:
+if 'private fun youtubeCollectionCandidates(' not in t:
     if anchor not in t:
         raise SystemExit('YouTube helper insertion anchor not found')
     t = t.replace(anchor, helper + anchor, 1)
+else:
+    # If an older helper exists, replace the helper block up to isFacebookUrl.
+    start = t.index('    private fun isYouTubeUrl(url: String): Boolean {')
+    end = t.index(anchor, start)
+    t = t[:start] + helper + t[end:]
 
 e.write_text(t)
 
@@ -109,9 +162,8 @@ new = '''            if (ui.tasks.isEmpty()) {
                 items(ui.tasks, key = { it.id }) { task -> TaskCard(task) }
             }
 '''
-if old not in u:
-    raise SystemExit('empty/discovery UI anchor not found')
-u = u.replace(old, new, 1)
+if old in u:
+    u = u.replace(old, new, 1)
 
 if 'private fun DiscoveryState(' not in u:
     u += '''
@@ -135,9 +187,9 @@ private fun DiscoveryState(status: String) {
                 color = Blue
             )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Fetching channel videos…", fontWeight = FontWeight.ExtraBold)
+                Text("Fetching channel videos + Shorts…", fontWeight = FontWeight.ExtraBold)
                 Text(
-                    status.ifBlank { "Reading public video list" },
+                    status.ifBlank { "Reading public channel tabs" },
                     color = Muted,
                     style = MaterialTheme.typography.bodySmall
                 )
