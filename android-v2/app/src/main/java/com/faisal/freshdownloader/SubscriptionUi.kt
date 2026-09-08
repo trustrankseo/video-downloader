@@ -47,7 +47,7 @@ fun SubscriptionCard(
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        if (premium) "Bulk + Channel/Profile unlocked" else "$trialsRemaining of 3 premium trials remaining",
+                        if (premium) "Bulk + Channel/Profile unlocked" else "$trialsRemaining premium trial${if (trialsRemaining == 1) "" else "s"} remaining",
                         color = Color.White.copy(alpha = 0.72f),
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -67,7 +67,7 @@ fun SubscriptionCard(
             }
 
             Text(
-                if (premium) status else "Single downloads stay free. Bulk and Channel/Profile use the 3 free trials, then require Premium.",
+                if (premium) status else "Single downloads stay free. Bulk and Channel/Profile use 3 starter trials plus any earned referral bonus trials, then require Premium.",
                 color = Color.White.copy(alpha = 0.68f),
                 style = MaterialTheme.typography.bodySmall
             )
@@ -105,7 +105,7 @@ fun PremiumRequiredDialog(
         onDismissRequest = onDismiss,
         title = { Text("Premium required") },
         text = {
-            Text("Your 3 free Bulk/Channel trials are finished. Single downloads remain free. Upgrade for $priceText to unlock Bulk and Channel/Profile.")
+            Text("Your available Bulk/Channel trials are finished. Single downloads remain free. Upgrade for $priceText to unlock Bulk and Channel/Profile.")
         },
         confirmButton = {
             Button(onClick = onUpgrade) { Text("GO PREMIUM") }
