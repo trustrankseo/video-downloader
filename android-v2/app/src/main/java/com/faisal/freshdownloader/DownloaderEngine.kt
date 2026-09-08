@@ -2,7 +2,6 @@ package com.faisal.freshdownloader
 
 import android.content.Context
 import android.os.Environment
-import android.webkit.CookieManager
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.CancellationException
@@ -13,6 +12,13 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
 
+/**
+ * Native-only download engine.
+ *
+ * This build intentionally avoids Android WebView/WebKit session extraction.
+ * Collection discovery uses the downloader engine and lightweight public HTTP
+ * fallbacks only. Direct public links remain available through Single/Bulk mode.
+ */
 class DownloaderEngine(private val context: Context) {
 
     private val outputDir: File by lazy {
@@ -25,7 +31,6 @@ class DownloaderEngine(private val context: Context) {
     @Volatile private var activeProcessId: String? = null
     @Volatile private var activeConnection: HttpURLConnection? = null
     @Volatile private var cancelRequested = false
-    @Volatile private var socialEnginePrepared = false
 
     private val browserUserAgent =
         "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 " +
@@ -35,7 +40,6 @@ class DownloaderEngine(private val context: Context) {
 
     fun cancelActive(): Boolean {
         cancelRequested = true
-        PublicProfileBrowserScanner.cancelActive()
 
         val processId = activeProcessId
         val hadConnection = activeConnection != null
@@ -57,15 +61,15 @@ class DownloaderEngine(private val context: Context) {
         cancelRequested = false
         runCatching {
             val normalized = normalizeInputUrl(url)
+            require(normalized.startsWith("http://") || normalized.startsWith("https://")) {
+                "Please enter a valid public http/https URL."
+            }
+
             val targetUrl = if (shouldResolveRedirect(normalized)) {
                 runCatching { resolveRedirectUrl(normalized) }.getOrDefault(normalized)
             } else normalized
 
             if (cancelRequested) throw CancellationException("Cancelled")
-
-            if (isInstagramUrl(targetUrl) || isTikTokUrl(targetUrl)) {
-                runCatching { prepareSocialEngineIfNeeded() }
-            }
 
             val request = YoutubeDLRequest(targetUrl)
             request.addOption("--no-playlist")
@@ -105,23 +109,23 @@ class DownloaderEngine(private val context: Context) {
     suspend fun discoverCollection(url: String): Result<List<String>> {
         cancelRequested = false
         val normalized = normalizeInputUrl(url)
+        if (!normalized.startsWith("http://") && !normalized.startsWith("https://")) {
+            return Result.failure(IllegalArgumentException("Please enter a valid public collection URL."))
+        }
+
         val targetUrl = if (shouldResolveRedirect(normalized)) {
             runCatching { resolveRedirectUrl(normalized) }.getOrDefault(normalized)
         } else normalized
 
         if (cancelRequested) return cancelledResult()
 
-        if (isInstagramProfileUrl(targetUrl)) {
-            return discoverSignedInProfile(targetUrl, "instagram")
+        val extractorAttempt = withContext(Dispatchers.IO) {
+            runCatching { discoverWithYtDlp(targetUrl) }
         }
-        if (isTikTokProfileUrl(targetUrl)) {
-            return discoverSignedInProfile(targetUrl, "tiktok")
-        }
-
-        val ytAttempt = withContext(Dispatchers.IO) { runCatching { discoverWithYtDlp(targetUrl) } }
         if (cancelRequested) return cancelledResult()
-        val ytUrls = ytAttempt.getOrDefault(emptyList())
-        if (ytUrls.isNotEmpty()) return Result.success(ytUrls)
+
+        val extracted = extractorAttempt.getOrDefault(emptyList())
+        if (extracted.isNotEmpty()) return Result.success(extracted)
 
         if (isFacebookUrl(targetUrl) || isFacebookUrl(normalized)) {
             val httpFallback = withContext(Dispatchers.IO) {
@@ -130,62 +134,53 @@ class DownloaderEngine(private val context: Context) {
             if (cancelRequested) return cancelledResult()
             if (httpFallback.isNotEmpty()) return Result.success(httpFallback)
 
-            val webViewFallback = runCatching {
-                FacebookBrowserScanner.scan(context, targetUrl)
-            }.getOrDefault(emptyList())
-            if (cancelRequested) return cancelledResult()
-            if (webViewFallback.isNotEmpty()) return Result.success(webViewFallback)
-
-            val detail = firstErrorLine(ytAttempt.exceptionOrNull())
             return Result.failure(
                 IllegalStateException(
-                    "FACEBOOK_PUBLIC_PROFILE_UNAVAILABLE: Facebook did not expose any Page/Profile Reels or Videos to signed-out guest mode. " +
-                        "Direct public reel/video links can still be downloaded in Single or Bulk mode." +
-                        if (detail.isBlank()) "" else " ($detail)"
+                    "FACEBOOK_PUBLIC_PROFILE_UNAVAILABLE: Facebook did not expose public Page/Profile videos to the native extractor. " +
+                        "Direct public reel/video links can still be used in Single or Bulk mode."
+                )
+            )
+        }
+
+        if (isInstagramProfileUrl(targetUrl)) {
+            return Result.failure(
+                IllegalStateException(
+                    "INSTAGRAM_PUBLIC_PROFILE_UNAVAILABLE: This native-only build does not open an embedded sign-in browser. " +
+                        "Use direct public Instagram post/reel links in Single or Bulk mode."
+                )
+            )
+        }
+
+        if (isTikTokProfileUrl(targetUrl)) {
+            return Result.failure(
+                IllegalStateException(
+                    "TIKTOK_PUBLIC_PROFILE_UNAVAILABLE: TikTok profile discovery is not available without an embedded browser session. " +
+                        "Use direct public TikTok video links in Single or Bulk mode when supported by the extractor."
                 )
             )
         }
 
         if (isInstagramUrl(targetUrl) || isInstagramUrl(normalized)) {
-            val detail = firstErrorLine(ytAttempt.exceptionOrNull())
+            val detail = firstErrorLine(extractorAttempt.exceptionOrNull())
             return Result.failure(
                 IllegalStateException(
-                    "INSTAGRAM_ITEM_UNAVAILABLE: Instagram could not expose this item to the downloader." +
+                    "INSTAGRAM_ITEM_UNAVAILABLE: Instagram did not expose this public item to the native extractor." +
                         if (detail.isBlank()) "" else " ($detail)"
                 )
             )
         }
 
         if (isTikTokUrl(targetUrl) || isTikTokUrl(normalized)) {
-            val detail = firstErrorLine(ytAttempt.exceptionOrNull())
+            val detail = firstErrorLine(extractorAttempt.exceptionOrNull())
             return Result.failure(
                 IllegalStateException(
-                    "TIKTOK_ITEM_UNAVAILABLE: TikTok could not expose this item to the downloader." +
+                    "TIKTOK_ITEM_UNAVAILABLE: TikTok did not expose this public item to the native extractor." +
                         if (detail.isBlank()) "" else " ($detail)"
                 )
             )
         }
 
-        return ytAttempt
-    }
-
-    private suspend fun discoverSignedInProfile(url: String, platform: String): Result<List<String>> {
-        if (cancelRequested) return cancelledResult()
-
-        val urls = runCatching {
-            PublicProfileBrowserScanner.scan(context, url, platform)
-        }.getOrDefault(emptyList())
-
-        if (cancelRequested) return cancelledResult()
-        if (urls.isNotEmpty()) return Result.success(urls)
-
-        val name = if (platform == "instagram") "Instagram" else "TikTok"
-        val code = if (platform == "instagram") "INSTAGRAM_PROFILE_SIGNIN_REQUIRED" else "TIKTOK_PROFILE_SIGNIN_REQUIRED"
-        return Result.failure(
-            IllegalStateException(
-                "$code: $name profile discovery found no visible video links. Tap SIGN IN in the official $name browser, log in once, then tap SCAN PROFILE."
-            )
-        )
+        return extractorAttempt
     }
 
     private fun cancelledResult(): Result<List<String>> =
@@ -193,7 +188,6 @@ class DownloaderEngine(private val context: Context) {
 
     private fun discoverWithYtDlp(url: String): List<String> {
         if (cancelRequested) throw CancellationException("Cancelled")
-        if (isInstagramUrl(url) || isTikTokUrl(url)) runCatching { prepareSocialEngineIfNeeded() }
 
         val request = YoutubeDLRequest(url)
         request.addOption("--flat-playlist")
@@ -211,16 +205,11 @@ class DownloaderEngine(private val context: Context) {
                 .map { it.trim() }
                 .filter { it.startsWith("http://") || it.startsWith("https://") }
                 .distinct()
+                .take(500)
                 .toList()
         } finally {
             if (activeProcessId == processId) activeProcessId = null
         }
-    }
-
-    private fun prepareSocialEngineIfNeeded() {
-        if (socialEnginePrepared || cancelRequested) return
-        YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.NIGHTLY)
-        socialEnginePrepared = true
     }
 
     private fun applyPublicHeaders(request: YoutubeDLRequest, url: String) {
@@ -232,20 +221,11 @@ class DownloaderEngine(private val context: Context) {
             isInstagramUrl(url) -> {
                 request.addOption("--user-agent", browserUserAgent)
                 request.addOption("--referer", "https://www.instagram.com/")
-                applySessionCookie(request, "https://www.instagram.com/")
             }
             isTikTokUrl(url) -> {
                 request.addOption("--user-agent", browserUserAgent)
                 request.addOption("--referer", "https://www.tiktok.com/")
-                applySessionCookie(request, "https://www.tiktok.com/")
             }
-        }
-    }
-
-    private fun applySessionCookie(request: YoutubeDLRequest, rootUrl: String) {
-        val cookie = runCatching { CookieManager.getInstance().getCookie(rootUrl) }.getOrNull()
-        if (!cookie.isNullOrBlank()) {
-            request.addOption("--add-header", "Cookie: $cookie")
         }
     }
 
@@ -445,8 +425,7 @@ class DownloaderEngine(private val context: Context) {
         cancelRequested = false
         runCatching {
             YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.NIGHTLY)
-            socialEnginePrepared = true
-            "Downloader engine updated to latest nightly"
+            "Downloader engine updated"
         }
     }
 }
