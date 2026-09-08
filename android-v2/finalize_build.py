@@ -1,13 +1,12 @@
 from pathlib import Path
 
-# v1.4.2 UI refresh: keep the user-facing version name while bumping the
-# installable Android versionCode so this can update over the previous build.
+# v1.4.3 release metadata. Keep the app update-installable over v1.4.2.
 g = Path('app/build.gradle.kts')
 s = g.read_text()
-for old_code in ('versionCode = 23', 'versionCode = 24', 'versionCode = 25', 'versionCode = 26'):
-    s = s.replace(old_code, 'versionCode = 27')
-for old_name in ('versionName = "1.3.9"', 'versionName = "1.4.0"', 'versionName = "1.4.1"'):
-    s = s.replace(old_name, 'versionName = "1.4.2"')
+for old_code in ('versionCode = 23', 'versionCode = 24', 'versionCode = 25', 'versionCode = 26', 'versionCode = 27'):
+    s = s.replace(old_code, 'versionCode = 28')
+for old_name in ('versionName = "1.3.9"', 'versionName = "1.4.0"', 'versionName = "1.4.1"', 'versionName = "1.4.2"'):
+    s = s.replace(old_name, 'versionName = "1.4.3"')
 
 needle = '    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")\n'
 if needle not in s:
@@ -24,7 +23,7 @@ g.write_text(s)
 p = Path('app/src/main/java/com/faisal/freshdownloader/MainActivity.kt')
 t = p.read_text()
 
-# The new AppMenuShell owns the hamburger menu and routes to each tool page.
+# The AppMenuShell owns the hamburger menu and routes to each tool page.
 t = t.replace('private fun DownloaderScreen(vm: DownloaderViewModel = viewModel())', 'fun DownloaderScreen(vm: DownloaderViewModel = viewModel())')
 t = t.replace('DownloaderScreen()', 'AppMenuShell()', 1)
 t = t.replace('Premium multi-platform downloader', 'Native multi-platform downloader')
