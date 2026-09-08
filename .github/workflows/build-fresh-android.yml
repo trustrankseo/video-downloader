@@ -28,7 +28,9 @@ jobs:
           mkdir -p signing
           base64 -d signing/universal-test.jks.b64 > signing/universal-test.jks
       - name: Apply Android build patches
-        run: python3 patch_build.py
+        run: |
+          python3 patch_build.py
+          python3 finalize_build.py
       - run: gradle :app:assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
         with:
