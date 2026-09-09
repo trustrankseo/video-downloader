@@ -27,6 +27,15 @@ jobs:
         run: |
           mkdir -p signing
           base64 -d signing/universal-test.jks.b64 > signing/universal-test.jks
+      - name: Prepare Huawei release signing key
+        env:
+          HUAWEI_KEYSTORE_B64: ${{ secrets.HUAWEI_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$HUAWEI_KEYSTORE_B64" ]; then
+            echo "Missing HUAWEI_KEYSTORE_B64 repository secret"
+            exit 1
+          fi
+          echo "$HUAWEI_KEYSTORE_B64" | base64 -d > signing/huawei-release.jks
       - name: Apply native-only release patch
         run: python3 finalize_build.py
       - name: Apply sidebar UI import fix
@@ -35,8 +44,16 @@ jobs:
         run: python3 appearance_build.py
       - name: Apply YouTube channel reliability fix
         run: python3 youtube_channel_fix.py
-      - run: gradle :app:assembleDebug --stacktrace
+      - name: Build signed Huawei release APK
+        env:
+          HUAWEI_KEYSTORE_PASSWORD: ${{ secrets.HUAWEI_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$HUAWEI_KEYSTORE_PASSWORD" ]; then
+            echo "Missing HUAWEI_KEYSTORE_PASSWORD repository secret"
+            exit 1
+          fi
+          gradle :app:assembleRelease --stacktrace
       - uses: actions/upload-artifact@v4
         with:
-          name: FreshDownloader-debug-apk
-          path: android-v2/app/build/outputs/apk/debug/app-debug.apk
+          name: UniversalDownloader-v1.4.6-Huawei-Release
+          path: android-v2/app/build/outputs/apk/release/app-release.apk
