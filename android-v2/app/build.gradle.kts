@@ -11,8 +11,8 @@ android {
         applicationId = "com.faisal.freshdownloader"
         minSdk = 29
         targetSdk = 35
-        versionCode = 29
-        versionName = "1.4.4"
+        versionCode = 31
+        versionName = "1.4.6"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -30,11 +30,22 @@ android {
             keyAlias = "universaltest"
             keyPassword = "android"
         }
+        create("huaweiRelease") {
+            storeFile = rootProject.file("signing/huawei-release.jks")
+            storePassword = System.getenv("HUAWEI_KEYSTORE_PASSWORD")
+            keyAlias = "universalrelease"
+            keyPassword = System.getenv("HUAWEI_KEYSTORE_PASSWORD")
+        }
     }
 
     buildTypes {
         getByName("debug") {
             signingConfig = signingConfigs.getByName("debug")
+        }
+        getByName("release") {
+            isDebuggable = false
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("huaweiRelease")
         }
     }
 
