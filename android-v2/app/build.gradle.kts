@@ -9,14 +9,10 @@ android {
 
     defaultConfig {
         applicationId = "com.faisal.freshdownloader"
-        minSdk = 29
+        minSdk = 24
         targetSdk = 35
-        versionCode = 31
-        versionName = "1.4.6"
-
-        ndk {
-            abiFilters += listOf("arm64-v8a")
-        }
+        versionCode = 34
+        versionName = "1.4.9"
 
         vectorDrawables {
             useSupportLibrary = true

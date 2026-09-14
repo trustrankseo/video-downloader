@@ -8,6 +8,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
@@ -49,9 +50,10 @@ object AppearanceRuntime {
     @Composable
     fun current(): AppearanceSettings {
         val context = LocalContext.current
-        val ignored by revision
-        ignored
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val refreshToken by revision
+        val prefs = remember(context, refreshToken) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        }
         val mode = runCatching {
             AppThemeMode.valueOf(prefs.getString(KEY_MODE, AppThemeMode.SYSTEM.name) ?: AppThemeMode.SYSTEM.name)
         }.getOrDefault(AppThemeMode.SYSTEM)

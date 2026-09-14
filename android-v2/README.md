@@ -24,6 +24,6 @@ The app uses a local yt-dlp/FFmpeg based engine, public/guest access first, no p
 
 ## Important platform note
 
-The Android app and queue/UI features can be confirmed independently, but social-platform downloading is site/extractor dependent. YouTube direct public links are the strongest current use case. TikTok profile/media extraction, Instagram profile discovery and Facebook profile enumeration are not advertised as guaranteed.
+The Android app and queue/UI features can be confirmed independently, but public-media downloading is source/extractor dependent. No third-party source is advertised as guaranteed or presented as affiliated with Universal Downloader.
 
 For the detailed confirmed-feature list, limitations, platform status, referral/Premium flow and how each feature works, see **[FEATURES_STATUS.md](FEATURES_STATUS.md)**.

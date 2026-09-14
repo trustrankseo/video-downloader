@@ -23,21 +23,9 @@ data class UiState(
 )
 
 fun detectPlatform(url: String): String {
-    val value = url.lowercase()
-    return when {
-        "youtube.com" in value || "youtu.be" in value -> "YouTube"
-        "facebook.com" in value || "fb.watch" in value -> "Facebook"
-        "instagram.com" in value -> "Instagram"
-        "tiktok.com" in value -> "TikTok"
-        "twitter.com" in value || "x.com" in value -> "X / Twitter"
-        "reddit.com" in value || "redd.it" in value -> "Reddit"
-        "vimeo.com" in value -> "Vimeo"
-        "dailymotion.com" in value || "dai.ly" in value -> "Dailymotion"
-        "twitch.tv" in value -> "Twitch"
-        "soundcloud.com" in value -> "SoundCloud"
-        "rednote.com" in value || "xiaohongshu.com" in value || "xhslink.com" in value -> "RedNote"
-        "pinterest.com" in value || "pin.it" in value -> "Pinterest"
-        "bilibili.com" in value || "b23.tv" in value -> "Bilibili"
-        else -> "Web"
+    return if (url.startsWith("http://", true) || url.startsWith("https://", true)) {
+        "Public media"
+    } else {
+        "Supported link"
     }
 }

@@ -5,12 +5,10 @@
 
     <application
         android:name=".DownloaderApp"
-        android:allowBackup="true"
-        android:extractNativeLibs="true"
+        android:allowBackup="false"
         android:icon="@drawable/ic_universal_logo"
         android:roundIcon="@drawable/ic_universal_logo"
         android:label="Universal Downloader"
-        android:requestLegacyExternalStorage="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.FreshDownloader">
 

@@ -1,14 +1,21 @@
 # Privacy Policy — Universal Downloader / 隐私政策 — Universal Downloader
 
-**Effective date / 生效日期:** September 10, 2026 / 2026年9月10日
+**Effective date / 生效日期:** September 14, 2026 / 2026年9月14日
 
 Universal Downloader is developed and published by **Zubair Abbas**. This Privacy Policy explains how the app handles information when you use Universal Downloader.
 
 Universal Downloader 由 **Zubair Abbas** 开发并发布。本隐私政策说明您使用 Universal Downloader 时，本应用如何处理相关信息。
 
+Public policy pages / 公开政策页面:
+
+- English and 简体中文: https://trustrankseo.github.io/video-downloader/privacy.html
+- 简体中文 direct page: https://trustrankseo.github.io/video-downloader/privacy-zh-cn.html
+
 ---
 
 ## English
+
+**Independent-app notice:** Universal Downloader is an independent utility and is not affiliated with, endorsed by, sponsored by, or associated with any third-party social media or media platform. Users are responsible for downloading only content they own or are authorized to save.
 
 ### 1. Information the app may process
 
@@ -86,6 +93,8 @@ Email: **sayadzubair0786@gmail.com**
 ---
 
 ## 简体中文（中国大陆适用）
+
+**独立应用声明：** Universal Downloader 是独立工具，与任何第三方社交媒体或媒体平台均不存在关联、认可、赞助或合作关系。用户应仅下载自己拥有或已获授权保存的内容。
 
 ### 1. 本应用可能处理的信息
 

@@ -165,6 +165,7 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
         if (abortRequested) {
             updateTask(task.id, DownloadStatus.CANCELLED, 0f, "Stopped by user")
         } else if (result.isSuccess) {
+            ReferralManager(getApplication()).activatePendingReferralAfterSuccessfulDownload()
             updateTask(task.id, DownloadStatus.COMPLETE, 1f, "Saved")
         } else {
             updateTask(task.id, DownloadStatus.FAILED, 0f, friendlyError(result.exceptionOrNull()))
@@ -195,11 +196,13 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
             msg.contains("FACEBOOK_PUBLIC_PROFILE_UNAVAILABLE", ignoreCase = true) ->
                 "Facebook Page/Profile is not exposing public Reels/Videos to guest mode. Direct public reel/video links can still work."
             msg.contains("INSTAGRAM_PUBLIC_PROFILE_UNAVAILABLE", ignoreCase = true) ->
-                "Instagram did not expose this profile's public posts/reels to signed-out guest mode. Direct public reel links can still be tried."
-            msg.contains("TIKTOK_PUBLIC_PROFILE_UNAVAILABLE", ignoreCase = true) ->
-                "TikTok profile discovery could not enumerate this account in guest mode. Direct public TikTok video links can still be tried."
-            msg.contains("secondary user id", ignoreCase = true) && msg.contains("tiktok", ignoreCase = true) ->
-                "TikTok profile extractor could not resolve this account. Guest browser fallback also found no public video links."
+                "Instagram profile discovery is unavailable in the native-only build. Try direct public reel/post links in Single or Bulk mode."
+            msg.contains("PUBLIC_PROFILE_UNAVAILABLE", ignoreCase = true) ->
+                "This public profile cannot be enumerated in guest mode. Try a direct public media link in Single or Bulk mode."
+            msg.contains("secondary user id", ignoreCase = true) ->
+                "The public-profile extractor could not resolve this account in guest mode."
+            msg.contains("PUBLIC_ITEM_UNAVAILABLE", ignoreCase = true) ->
+                "The source did not expose this public item to the download engine."
             msg.contains("unsupported url", ignoreCase = true) && msg.contains("facebook", ignoreCase = true) ->
                 "Facebook redirected to a profile/page URL that its extractor cannot enumerate yet."
             msg.contains("cannot parse data", ignoreCase = true) && msg.contains("facebook", ignoreCase = true) ->

@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -31,6 +32,8 @@ private enum class MenuPage(val title: String, val symbol: String) {
     Premium("Premium", "★"),
     Device("Device & Eligibility", "✓"),
     Engine("App & Engine", "⚙"),
+    Appearance("Appearance", "◐"),
+    Privacy("Privacy Policy", "▣"),
     About("About Me", "i"),
     Contact("Contact Us", "@"),
     Report("Report a Problem", "!")
@@ -48,10 +51,10 @@ fun AppMenuShell(vm: DownloaderViewModel = viewModel()) {
         drawerContent = {
             ModalDrawerSheet(
                 modifier = Modifier.width(292.dp),
-                drawerContainerColor = Color(0xFF0B1526)
+                drawerContainerColor = MaterialTheme.colorScheme.surface
             ) {
                 DrawerHeader()
-                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                 Spacer(Modifier.height(8.dp))
 
                 MenuPage.entries.forEach { item ->
@@ -66,7 +69,7 @@ fun AppMenuShell(vm: DownloaderViewModel = viewModel()) {
                             Surface(
                                 modifier = Modifier.size(30.dp),
                                 shape = RoundedCornerShape(9.dp),
-                                color = if (item == selected) Color(0xFF5B7CFF).copy(alpha = 0.22f) else Color.White.copy(alpha = 0.05f)
+                                color = if (item == selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Text(item.symbol, fontWeight = FontWeight.Black)
@@ -80,12 +83,12 @@ fun AppMenuShell(vm: DownloaderViewModel = viewModel()) {
                         },
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
                         colors = NavigationDrawerItemDefaults.colors(
-                            selectedContainerColor = Color(0xFF5B7CFF).copy(alpha = 0.18f),
+                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
                             unselectedContainerColor = Color.Transparent,
                             selectedTextColor = Color.White,
-                            unselectedTextColor = Color.White.copy(alpha = 0.76f),
-                            selectedIconColor = Color(0xFF55DDF7),
-                            unselectedIconColor = Color.White.copy(alpha = 0.72f)
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.76f),
+                            selectedIconColor = MaterialTheme.colorScheme.secondary,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
                         )
                     )
                 }
@@ -94,16 +97,16 @@ fun AppMenuShell(vm: DownloaderViewModel = viewModel()) {
                 Text(
                     "Universal Downloader • v${BuildConfig.VERSION_NAME}",
                     modifier = Modifier.padding(18.dp),
-                    color = Color.White.copy(alpha = 0.45f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
                     style = MaterialTheme.typography.labelSmall
                 )
             }
         }
     ) {
         Scaffold(
-            containerColor = Color(0xFF08101E),
+            containerColor = MaterialTheme.colorScheme.background,
             topBar = {
-                Surface(shadowElevation = 4.dp, color = Color(0xFF0C1728)) {
+                Surface(shadowElevation = 4.dp, color = MaterialTheme.colorScheme.surface) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -113,7 +116,7 @@ fun AppMenuShell(vm: DownloaderViewModel = viewModel()) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Text("☰", style = MaterialTheme.typography.headlineSmall, color = Color.White)
+                            Text("☰", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
                         }
                         Text(
                             selected.title,
@@ -123,12 +126,12 @@ fun AppMenuShell(vm: DownloaderViewModel = viewModel()) {
                         )
                         Surface(
                             shape = RoundedCornerShape(99.dp),
-                            color = Color(0xFF55DDF7).copy(alpha = 0.12f)
+                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f)
                         ) {
                             Text(
                                 "v${BuildConfig.VERSION_NAME}",
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                color = Color(0xFF55DDF7),
+                                color = MaterialTheme.colorScheme.secondary,
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold
                             )
@@ -144,6 +147,8 @@ fun AppMenuShell(vm: DownloaderViewModel = viewModel()) {
                     MenuPage.Premium -> PremiumPage()
                     MenuPage.Device -> DeviceEligibilityPage()
                     MenuPage.Engine -> EnginePage(vm)
+                    MenuPage.Appearance -> AppearancePage()
+                    MenuPage.Privacy -> PrivacyPolicyPage()
                     MenuPage.About -> AboutPage()
                     MenuPage.Contact -> ContactPage()
                     MenuPage.Report -> ReportProblemPage()
@@ -160,7 +165,7 @@ private fun DrawerHeader() {
             .fillMaxWidth()
             .background(
                 Brush.linearGradient(
-                    listOf(Color(0xFF153452), Color(0xFF223267), Color(0xFF3A2356))
+                    listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.30f), MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.24f))
                 )
             )
             .padding(20.dp),
@@ -169,16 +174,16 @@ private fun DrawerHeader() {
         Surface(
             modifier = Modifier.size(52.dp),
             shape = RoundedCornerShape(16.dp),
-            color = Color.White.copy(alpha = 0.10f),
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Text("UD", color = Color(0xFF55DDF7), fontWeight = FontWeight.Black)
+                Text("UD", color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Black)
             }
         }
         Spacer(Modifier.height(4.dp))
         Text("Universal Downloader", fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
-        Text("Clean tools. One menu.", color = Color.White.copy(alpha = 0.65f), style = MaterialTheme.typography.bodySmall)
+        Text("Clean tools. One menu.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f), style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -210,20 +215,26 @@ private fun PremiumPage() {
     val premium by billing.isPremium
     val price by billing.priceText
     val status by billing.statusText
-    refresh
+    val trialsRemaining = remember(refresh) { access.trialsRemaining() }
 
     SimplePage {
         Text("Premium Access", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
         Text(
             "Single downloads stay free. Bulk and Channel/Profile use your available trials, then Premium.",
-            color = Color.White.copy(alpha = 0.68f)
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
         )
         SubscriptionCard(
             premium = premium,
-            trialsRemaining = access.trialsRemaining(),
+            trialsRemaining = trialsRemaining,
             priceText = price,
             status = status,
-            onUpgrade = { activity?.let { billing.purchase(it) } },
+            onUpgrade = {
+                if (activity != null) {
+                    billing.purchase(activity)
+                } else {
+                    billing.statusText.value = "Unable to open the app-store purchase screen"
+                }
+            },
             onRestore = {
                 billing.restore()
                 refresh++
@@ -255,7 +266,7 @@ private fun DeviceEligibilityPage() {
         InfoTile("Organic shares", snap.shareCount.toString())
         Text(
             "Privacy-safe record only: the app uses an app-generated install ID. It does not read IMEI, serial number, contacts, microphone, camera or screen recordings.",
-            color = Color.White.copy(alpha = 0.58f),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
             style = MaterialTheme.typography.bodySmall
         )
     }
@@ -272,15 +283,96 @@ private fun EnginePage(vm: DownloaderViewModel) {
             onClick = vm::updateEngine,
             enabled = !ui.running,
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5B7CFF))
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
         ) {
             Text("UPDATE DOWNLOAD ENGINE", fontWeight = FontWeight.Bold)
         }
         Text(
             "Engine updates only affect supported extractor components. Platform behavior can still change outside the app.",
-            color = Color.White.copy(alpha = 0.58f),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
             style = MaterialTheme.typography.bodySmall
         )
+    }
+}
+
+@Composable
+private fun AppearancePage() {
+    val context = LocalContext.current
+    val appearance = AppearanceRuntime.current()
+
+    SimplePage {
+        Text("Appearance", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
+        Text(
+            "Choose a black dark theme, clean white light theme, or follow your Android system automatically.",
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
+        )
+
+        Text("THEME MODE", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f), style = MaterialTheme.typography.labelSmall)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppThemeMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = appearance.mode == mode,
+                    onClick = { AppearanceRuntime.setMode(context, mode) },
+                    label = {
+                        Text(
+                            when (mode) {
+                                AppThemeMode.SYSTEM -> "System"
+                                AppThemeMode.DARK -> "Dark"
+                                AppThemeMode.LIGHT -> "White"
+                            }
+                        )
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        Text("ACCENT COLOR", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f), style = MaterialTheme.typography.labelSmall)
+        AppAccent.entries.chunked(3).forEach { row ->
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { accent ->
+                    val selected = appearance.accent == accent
+                    Surface(
+                        onClick = { AppearanceRuntime.setAccent(context, accent) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (selected) AppearanceRuntime.accentColor(accent).copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant,
+                        border = BorderStroke(
+                            1.dp,
+                            if (selected) AppearanceRuntime.accentColor(accent) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                modifier = Modifier.size(18.dp),
+                                shape = RoundedCornerShape(99.dp),
+                                color = AppearanceRuntime.accentColor(accent)
+                            ) {}
+                            Text(
+                                accent.name.lowercase().replaceFirstChar { it.uppercase() },
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+
+        InfoTile(
+            "Current mode",
+            when (appearance.mode) {
+                AppThemeMode.SYSTEM -> "System • currently ${if (appearance.darkResolved) "Dark" else "White"}"
+                AppThemeMode.DARK -> "Dark Black"
+                AppThemeMode.LIGHT -> "White Light"
+            }
+        )
+        InfoTile("Saved", "Theme and accent choices are stored on this device and applied on the next app launch too.")
     }
 }
 
@@ -291,15 +383,19 @@ private fun AboutPage() {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
-            color = Color(0xFF111D31),
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
         ) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Zubair Abbas", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
-                Text("Developer & creator of Universal Downloader", color = Color(0xFF55DDF7), fontWeight = FontWeight.SemiBold)
+                Text("Developer & creator of Universal Downloader", color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.SemiBold)
                 Text(
                     "Universal Downloader is built to keep public-link downloading simple, fast and organized with Single, Bulk and Channel/Profile tools in one app.",
-                    color = Color.White.copy(alpha = 0.72f)
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+                )
+                Text(
+                    "Universal Downloader is an independent utility and is not affiliated with, endorsed by, sponsored by, or associated with any third-party social media or media platform. Users are responsible for downloading only content they own or are authorized to save.",
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
                 )
             }
         }
@@ -313,7 +409,7 @@ private fun ContactPage() {
     val context = LocalContext.current
     SimplePage {
         Text("Contact Us", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
-        Text("Questions, feedback or business inquiries can be sent directly from your email app.", color = Color.White.copy(alpha = 0.68f))
+        Text("Questions, feedback or business inquiries can be sent directly from your email app.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f))
         Button(
             onClick = {
                 val intent = Intent(Intent.ACTION_SENDTO).apply {
@@ -323,7 +419,7 @@ private fun ContactPage() {
                     .onFailure { Toast.makeText(context, "No email app found", Toast.LENGTH_SHORT).show() }
             },
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5B7CFF))
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
         ) {
             Text("EMAIL SUPPORT", fontWeight = FontWeight.Bold)
         }
@@ -343,10 +439,10 @@ private fun ReportProblemPage() {
         Text("Report a Problem", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
         Text(
             "Send a problem report directly to the developer. App and device details are attached to help diagnose the issue.",
-            color = Color.White.copy(alpha = 0.68f)
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
         )
 
-        Text("Problem type", color = Color.White.copy(alpha = 0.60f), style = MaterialTheme.typography.labelMedium)
+        Text("Problem type", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f), style = MaterialTheme.typography.labelMedium)
         Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
             categories.chunked(2).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -412,7 +508,7 @@ private fun ReportProblemPage() {
 
         Text(
             "The report opens in the user's email app for review before sending. Nothing is silently uploaded in the background.",
-            color = Color.White.copy(alpha = 0.48f),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.48f),
             style = MaterialTheme.typography.labelSmall
         )
     }
@@ -423,12 +519,12 @@ private fun InfoTile(label: String, value: String) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(17.dp),
-        color = Color(0xFF111D31),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.07f))
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f))
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(label.uppercase(), color = Color.White.copy(alpha = 0.46f), style = MaterialTheme.typography.labelSmall)
-            Text(value, color = Color.White.copy(alpha = 0.84f), fontWeight = FontWeight.SemiBold)
+            Text(label.uppercase(), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.46f), style = MaterialTheme.typography.labelSmall)
+            Text(value, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.84f), fontWeight = FontWeight.SemiBold)
         }
     }
 }

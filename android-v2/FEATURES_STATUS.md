@@ -178,9 +178,9 @@ Direct public video URLs are the strongest current use case. Playlist/channel di
 
 Do not describe every YouTube URL as guaranteed.
 
-### ⚠️ TikTok
+### Public media sources
 
-TikTok profile discovery and direct media downloading are **not confirmed as reliably working** in the current Android environment. Recent TikTok/yt-dlp behavior can require impersonation capabilities that are not available in this build, and TikTok may not expose a usable MP4/CDN URL to the Android WebView/native resolver.
+Public-profile discovery and direct media downloading depend on what each independent source exposes to the native extractor without authentication. The app does not advertise or imply an official relationship with any source.
 
 The app should fail cleanly rather than claim a bypass.
 

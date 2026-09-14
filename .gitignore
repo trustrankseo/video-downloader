@@ -1,0 +1,3 @@
+android-v2/.gradle/
+android-v2/app/build/
+android-v2/signing/*.jks

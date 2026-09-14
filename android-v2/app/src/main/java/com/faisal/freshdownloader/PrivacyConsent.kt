@@ -18,70 +18,144 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import java.util.Locale
 
-private const val PRIVACY_URL = "https://trustrankseo.github.io/video-downloader/privacy.html"
+private const val PRIVACY_URL_EN = "https://trustrankseo.github.io/video-downloader/privacy.html"
+private const val PRIVACY_URL_ZH_CN = "https://trustrankseo.github.io/video-downloader/privacy-zh-cn.html"
 private const val PRIVACY_PREFS = "universal_downloader_privacy"
 private const val PRIVACY_ACCEPTED_VERSION = "accepted_policy_version"
-private const val CURRENT_POLICY_VERSION = 2
+private const val CURRENT_POLICY_VERSION = 3
 
 private data class PolicySection(val title: String, val body: String)
 
 private val EN_POLICY = listOf(
     PolicySection(
-        "Information we process",
-        "Universal Downloader is designed to minimize data collection. The app may process an app-generated installation ID, referral/trial state, Premium entitlement state, app version, basic device/app diagnostics, and URLs you enter to perform requested downloads. The app does not request your name, precise location, contacts, SMS, call history, IMEI, or device serial number."
+        "Publisher and scope",
+        "Universal Downloader is developed and published by Zubair Abbas. This policy explains how information is handled when you use the app."
     ),
     PolicySection(
-        "How information is used",
-        "Information is used to provide Single, Bulk, Channel/Playlist/Profile, MP4 and MP3 features where supported; manage trials, referrals and Premium access; save app preferences; prevent duplicate trial/referral abuse; and troubleshoot problems you choose to report."
+        "Information the app may process",
+        "The app may process an app-generated installation ID; referral source, code, status and reward information; trial and Premium entitlement status; Android version, app version, device model and basic diagnostics; URLs you enter for download operations; and support information you choose to include in a problem report. It does not request your precise location, contacts, SMS, call history, IMEI or device serial number."
     ),
     PolicySection(
-        "Downloads and third-party services",
-        "Links you enter are processed only to perform the requested download or discovery action. Downloaded files are saved locally on your device. Third-party websites and media services operate independently under their own terms and privacy practices. Only download content you own or are authorized or otherwise permitted to save."
+        "Purposes of processing",
+        "Information is used to provide Single, Bulk, Channel/Playlist/Profile, MP4 and MP3 functions where supported; manage trials, referrals, rewards and Premium access; save preferences; prevent duplicate trial or referral abuse; diagnose failures; and respond to reports you choose to send."
     ),
     PolicySection(
-        "Payments",
-        "If Premium is offered, payment and subscription processing is handled by the applicable app store, including HUAWEI AppGallery where applicable. Universal Downloader does not receive or store full payment-card details. The app may receive entitlement or transaction status needed to activate or restore Premium."
+        "User URLs, downloads and third-party services",
+        "URLs you enter are processed only to perform the requested download or discovery operation and may be sent to the relevant third-party media service. Downloaded files are stored locally on your device. Third-party sites operate independently under their own terms and privacy practices. Download only content you own or are authorized to save."
     ),
     PolicySection(
-        "Sharing, retention and support",
-        "Universal Downloader does not sell personal data. Local settings and identifiers normally remain on your device until app data is cleared or the app is removed. A problem report is sent only when you choose to send it through your email app and may include your written description plus basic app/device diagnostics."
+        "Independent-app notice",
+        "Universal Downloader is an independent utility and is not affiliated with, endorsed by, sponsored by, or associated with any third-party social media or media platform."
     ),
     PolicySection(
-        "Your rights and contact",
-        "Depending on your region, you may request access, correction or deletion of personal information associated with the app. For privacy questions or requests, contact the developer from Contact Us in the app or email sayadzubair0786@gmail.com."
+        "Payments and app stores",
+        "Payment and subscription processing is handled by the applicable app store or payment provider, including HUAWEI AppGallery where applicable. Universal Downloader does not receive or store full payment-card details. The app may receive product, transaction or entitlement status needed to activate or restore Premium."
+    ),
+    PolicySection(
+        "Sharing and service providers",
+        "Universal Downloader does not sell personal data. Information may be processed or shared only as necessary with app-store, payment, media-source or technical service providers to perform a requested function, provide support, comply with law or prevent abuse."
+    ),
+    PolicySection(
+        "Retention and deletion",
+        "Local settings, identifiers, referral and trial state remain on your device until you clear app data or uninstall the app. Downloaded files remain until you delete them. Voluntary support information is retained only as reasonably necessary to investigate the request or meet legal obligations. App stores may retain transaction records under their own policies."
+    ),
+    PolicySection(
+        "Problem reports and support",
+        "A report is sent only when you choose to open and send it through your email app. It may contain your description, app version, Android version, device model, installation ID, referral source and basic diagnostics. Nothing is silently uploaded as a problem report."
+    ),
+    PolicySection(
+        "Children's privacy",
+        "Universal Downloader is not designed as a children's app. The developer does not knowingly request personal information from children through the app."
+    ),
+    PolicySection(
+        "Security",
+        "Reasonable technical and organizational measures are used to reduce unauthorized access, alteration, disclosure or loss. No electronic storage or transmission method can be guaranteed completely secure."
+    ),
+    PolicySection(
+        "Your rights",
+        "Depending on applicable law, you may request access, correction, deletion, restriction, objection, portability or withdrawal of consent for personal information associated with the app. You can remove local app data in Android settings and delete downloaded files separately."
+    ),
+    PolicySection(
+        "Contact and requests",
+        "For privacy questions or access, correction or deletion requests, use Contact Us in the app or email sayadzubair0786@gmail.com and identify Universal Downloader."
+    ),
+    PolicySection(
+        "Policy changes",
+        "This policy may change when app functions, legal requirements, store requirements or data practices change. The effective date and consent version will be updated for material changes."
     )
 )
 
 private val ZH_POLICY = listOf(
     PolicySection(
-        "我们处理的信息",
-        "Universal Downloader 以尽量少收集数据为原则。根据您使用的功能，本应用可能处理由应用生成的安装标识符、推荐/试用状态、Premium 权益状态、应用版本、基本设备/应用诊断信息，以及您为执行下载而输入的链接。本应用不会要求提供您的姓名、精确位置、联系人、短信、通话记录、IMEI 或设备序列号。"
+        "发布者及适用范围",
+        "Universal Downloader 由 Zubair Abbas 开发并发布。本政策说明您使用本应用时相关信息的处理方式。"
     ),
     PolicySection(
-        "信息的使用方式",
-        "相关信息仅用于在支持的情况下提供单个下载、批量下载、频道/播放列表/主页、MP4 和 MP3 功能；管理试用、推荐奖励和 Premium 权益；保存应用偏好；防止重复领取试用或推荐奖励；以及处理您主动提交的问题报告。"
+        "本应用可能处理的信息",
+        "本应用可能处理：由应用生成的安装标识符；推荐来源、推荐码、推荐状态及奖励信息；试用和 Premium 权益状态；Android 版本、应用版本、设备型号及基础诊断信息；您为下载操作输入的链接；以及您主动在问题报告中提供的支持信息。本应用不会要求精确位置、联系人、短信、通话记录、IMEI 或设备序列号。"
     ),
     PolicySection(
-        "下载及第三方服务",
-        "您输入的链接仅用于执行您请求的下载或内容发现操作。下载文件保存在您的设备本地。第三方网站和媒体服务独立运营，并适用其各自的服务条款和隐私规则。请仅下载您拥有、已获授权或依法及依相关服务条款允许保存的内容。"
+        "处理目的",
+        "相关信息仅用于在支持的情况下提供单个下载、批量下载、频道/播放列表/主页、MP4 和 MP3 功能；管理试用、推荐、奖励和 Premium 权益；保存偏好；防止重复或滥用试用/推荐；诊断故障；以及响应您主动发送的问题报告。"
     ),
     PolicySection(
-        "支付",
-        "如提供 Premium 服务，付款及订阅由相应的应用商店处理；在适用情况下包括 HUAWEI AppGallery。Universal Downloader 不接收或保存完整的银行卡信息。本应用可能接收用于开通或恢复 Premium 所必需的购买状态、交易状态或权益信息。"
+        "用户链接、下载文件及第三方服务",
+        "您输入的链接仅用于执行所请求的下载或内容发现操作，并可能发送至相应的第三方媒体服务。下载文件保存在您的设备本地。第三方服务独立运营并适用其自身条款及隐私规则。请仅下载您拥有或已获授权保存的内容。"
     ),
     PolicySection(
-        "共享、保存期限及技术支持",
-        "Universal Downloader 不出售个人信息。本地设置和安装标识符通常保存在您的设备上，直至您清除应用数据或卸载应用。只有当您主动选择通过电子邮件发送问题报告时，报告才会发出；报告可能包含您填写的问题描述以及基本的应用/设备诊断信息。"
+        "独立应用声明",
+        "Universal Downloader 是独立工具，与任何第三方社交媒体或媒体平台均不存在关联、认可、赞助或合作关系。"
     ),
     PolicySection(
-        "您的权利及联系方式",
-        "根据您所在地区适用的法律，您可请求查询、更正或删除与本应用相关的个人信息。如有隐私问题或相关请求，可通过应用内“Contact Us”联系开发者，或发送邮件至 sayadzubair0786@gmail.com。"
+        "支付与应用商店",
+        "付款及订阅由相应的应用商店或支付服务提供方处理；在适用情况下包括 HUAWEI AppGallery。Universal Downloader 不接收或保存完整银行卡信息。本应用可能接收开通或恢复 Premium 所必需的商品、交易或权益状态。"
     ),
     PolicySection(
-        "中国大陆用户说明",
-        "本应用的大部分设置、试用和推荐状态保存在设备本地。为完成您主动请求的下载，您输入的链接可能会发送至对应的第三方内容服务；付款信息由 HUAWEI AppGallery 等相应应用商店处理。本应用不会出售个人信息，也不会在未经您主动操作的情况下发送问题报告。"
+        "共享及服务提供方",
+        "Universal Downloader 不出售个人信息。仅在执行用户请求的功能、提供支持、遵守法律或防止滥用所必需的情况下，相关信息才可能由应用商店、支付、媒体来源或技术服务提供方处理或共享。"
+    ),
+    PolicySection(
+        "保存期限及删除",
+        "本地设置、安装标识符、推荐及试用状态保存在设备上，直至您清除应用数据或卸载应用。下载文件会保留至您主动删除。您自愿发送的支持信息仅在调查请求或履行法律义务所合理需要的期限内保存。应用商店可能按其自身政策保存交易记录。"
+    ),
+    PolicySection(
+        "问题报告及支持",
+        "只有当您选择通过电子邮件应用打开并发送问题报告时，报告才会发出。报告可能包含您的描述、应用版本、Android 版本、设备型号、安装标识符、推荐来源及基础诊断信息。本应用不会在后台静默上传问题报告。"
+    ),
+    PolicySection(
+        "未成年人隐私",
+        "Universal Downloader 并非面向儿童设计的应用。开发者不会通过本应用主动要求儿童提供个人信息。"
+    ),
+    PolicySection(
+        "安全措施",
+        "我们采取合理的技术和管理措施，以降低未经授权访问、修改、披露或丢失信息的风险。但任何电子存储或传输方式均无法保证绝对安全。"
+    ),
+    PolicySection(
+        "您的个人信息权利",
+        "根据适用法律，您可能有权请求查询、更正、删除、限制处理、提出异议、数据可携带或撤回同意。您可在 Android 设置中清除本地应用数据，并另行删除下载文件。"
+    ),
+    PolicySection(
+        "联系方式及权利请求",
+        "如有隐私问题，或需要提出查询、更正或删除请求，请使用应用内“Contact Us”，或发送邮件至 sayadzubair0786@gmail.com，并注明 Universal Downloader。"
+    ),
+    PolicySection(
+        "本政策的变更",
+        "当应用功能、法律要求、应用商店要求或数据处理方式发生变化时，本政策可能更新。如有重要变更，生效日期及同意版本将同步更新。"
     )
 )
+
+fun hasAcceptedPrivacyPolicy(context: Context): Boolean =
+    context.getSharedPreferences(PRIVACY_PREFS, Context.MODE_PRIVATE)
+        .getInt(PRIVACY_ACCEPTED_VERSION, 0) >= CURRENT_POLICY_VERSION
+
+private fun isSimplifiedChineseLocale(): Boolean {
+    val locale = Locale.getDefault()
+    val tag = locale.toLanguageTag().lowercase()
+    return locale.language.equals("zh", true) &&
+        (locale.country.equals("CN", true) || locale.country.equals("SG", true) || "hans" in tag || locale.country.isBlank())
+}
+
+private fun privacyUrl(chinese: Boolean): String = if (chinese) PRIVACY_URL_ZH_CN else PRIVACY_URL_EN
 
 @Composable
 fun PrivacyConsentGate(content: @Composable () -> Unit) {
@@ -115,7 +189,7 @@ private fun FirstLaunchPrivacyScreen(
 ) {
     val context = LocalContext.current
     var chinese by rememberSaveable {
-        mutableStateOf(Locale.getDefault().language.lowercase().startsWith("zh"))
+        mutableStateOf(isSimplifiedChineseLocale())
     }
     var confirmedRead by rememberSaveable { mutableStateOf(false) }
     val sections = if (chinese) ZH_POLICY else EN_POLICY
@@ -171,12 +245,12 @@ private fun FirstLaunchPrivacyScreen(
             OutlinedButton(
                 onClick = {
                     runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_URL)))
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(privacyUrl(chinese))))
                     }
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(if (chinese) "在线查看完整隐私政策" else "Read full Privacy Policy online")
+                Text(if (chinese) "阅读隐私政策" else "Read Privacy Policy")
             }
 
             Row(
@@ -211,7 +285,7 @@ private fun FirstLaunchPrivacyScreen(
                 onClick = onDecline,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(if (chinese) "不同意并退出" else "Decline & Exit")
+                Text(if (chinese) "拒绝并退出" else "Decline & Exit")
             }
         }
     }
@@ -221,7 +295,7 @@ private fun FirstLaunchPrivacyScreen(
 fun PrivacyPolicyPage() {
     val context = LocalContext.current
     var chinese by rememberSaveable {
-        mutableStateOf(Locale.getDefault().language.lowercase().startsWith("zh"))
+        mutableStateOf(isSimplifiedChineseLocale())
     }
     val sections = if (chinese) ZH_POLICY else EN_POLICY
 
@@ -238,7 +312,7 @@ fun PrivacyPolicyPage() {
             fontWeight = FontWeight.ExtraBold
         )
         Text(
-            if (chinese) "更新日期：2026年9月10日" else "Last updated: September 10, 2026",
+            if (chinese) "更新日期：2026年9月14日" else "Last updated: September 14, 2026",
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
         )
 
@@ -265,7 +339,7 @@ fun PrivacyPolicyPage() {
         Button(
             onClick = {
                 runCatching {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_URL)))
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(privacyUrl(chinese))))
                 }
             },
             modifier = Modifier.fillMaxWidth()

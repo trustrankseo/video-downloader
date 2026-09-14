@@ -183,8 +183,8 @@ if success_old not in u:
     raise SystemExit('referral success hook anchor not found')
 u = u.replace(success_old, success_new, 1)
 u = u.replace(
-    'TikTok profile discovery could not enumerate this account in guest mode. Direct public TikTok video links can still be tried.',
-    'TikTok profile discovery is unavailable in the native-only build. Try direct public video links in Single or Bulk mode.'
+    'This public profile could not be enumerated in guest mode. Direct public media links can still be tried.',
+    'Public-profile discovery is unavailable in the native-only build. Try direct public links in Single or Bulk mode.'
 )
 u = u.replace(
     "Instagram did not expose this profile's public posts/reels to signed-out guest mode. Direct public reel links can still be tried.",

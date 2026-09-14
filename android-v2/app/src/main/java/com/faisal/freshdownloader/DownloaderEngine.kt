@@ -119,8 +119,23 @@ class DownloaderEngine(private val context: Context) {
 
         if (cancelRequested) return cancelledResult()
 
+        val discoveryUrls = youtubeCollectionCandidates(targetUrl)
         val extractorAttempt = withContext(Dispatchers.IO) {
-            runCatching { discoverWithYtDlp(targetUrl) }
+            runCatching {
+                val combined = linkedSetOf<String>()
+                var firstFailure: Throwable? = null
+                for (candidate in discoveryUrls) {
+                    if (cancelRequested) throw CancellationException("Cancelled")
+                    try {
+                        combined += discoverWithYtDlp(candidate)
+                    } catch (failure: Throwable) {
+                        if (firstFailure == null) firstFailure = failure
+                    }
+                    if (combined.size >= 500) break
+                }
+                if (combined.isEmpty() && firstFailure != null) throw firstFailure
+                combined.take(500)
+            }
         }
         if (cancelRequested) return cancelledResult()
 
@@ -151,11 +166,11 @@ class DownloaderEngine(private val context: Context) {
             )
         }
 
-        if (isTikTokProfileUrl(targetUrl)) {
+        if (isShortVideoProfileUrl(targetUrl)) {
             return Result.failure(
                 IllegalStateException(
-                    "TIKTOK_PUBLIC_PROFILE_UNAVAILABLE: TikTok profile discovery is not available without an embedded browser session. " +
-                        "Use direct public TikTok video links in Single or Bulk mode when supported by the extractor."
+                    "PUBLIC_PROFILE_UNAVAILABLE: This public profile cannot be enumerated without an authenticated browser session. " +
+                        "A direct public media link can still be tried in Single or Bulk mode when supported by the extractor."
                 )
             )
         }
@@ -170,11 +185,11 @@ class DownloaderEngine(private val context: Context) {
             )
         }
 
-        if (isTikTokUrl(targetUrl) || isTikTokUrl(normalized)) {
+        if (isShortVideoSourceUrl(targetUrl) || isShortVideoSourceUrl(normalized)) {
             val detail = firstErrorLine(extractorAttempt.exceptionOrNull())
             return Result.failure(
                 IllegalStateException(
-                    "TIKTOK_ITEM_UNAVAILABLE: TikTok did not expose this public item to the native extractor." +
+                    "PUBLIC_ITEM_UNAVAILABLE: The source did not expose this public item to the native extractor." +
                         if (detail.isBlank()) "" else " ($detail)"
                 )
             )
@@ -193,17 +208,25 @@ class DownloaderEngine(private val context: Context) {
         request.addOption("--flat-playlist")
         request.addOption("--skip-download")
         request.addOption("--no-warnings")
-        request.addOption("--print", "%(webpage_url)s")
+        request.addOption("--print", if (isYouTubeUrl(url)) "%(id)s" else "%(webpage_url)s")
         applyPublicHeaders(request, url)
 
         val processId = "discover-${UUID.randomUUID()}"
         activeProcessId = processId
         return try {
             val response = YoutubeDL.getInstance().execute(request, processId)
+            val youtube = isYouTubeUrl(url)
+            val youtubeId = Regex("^[A-Za-z0-9_-]{11}$")
             response.out
                 .lineSequence()
                 .map { it.trim() }
-                .filter { it.startsWith("http://") || it.startsWith("https://") }
+                .mapNotNull { value ->
+                    when {
+                        value.startsWith("http://") || value.startsWith("https://") -> value
+                        youtube && youtubeId.matches(value) -> "https://www.youtube.com/watch?v=$value"
+                        else -> null
+                    }
+                }
                 .distinct()
                 .take(500)
                 .toList()
@@ -222,7 +245,7 @@ class DownloaderEngine(private val context: Context) {
                 request.addOption("--user-agent", browserUserAgent)
                 request.addOption("--referer", "https://www.instagram.com/")
             }
-            isTikTokUrl(url) -> {
+            isShortVideoSourceUrl(url) -> {
                 request.addOption("--user-agent", browserUserAgent)
                 request.addOption("--referer", "https://www.tiktok.com/")
             }
@@ -390,6 +413,54 @@ class DownloaderEngine(private val context: Context) {
         }
     }
 
+    private fun isYouTubeUrl(url: String): Boolean {
+        val lower = normalizeInputUrl(url).lowercase()
+        return "youtube.com" in lower || "youtu.be" in lower
+    }
+
+    private fun youtubeCollectionCandidates(url: String): List<String> {
+        if (!isYouTubeUrl(url)) return listOf(url)
+
+        val normalized = normalizeInputUrl(url)
+        val parsed = runCatching { URL(normalized) }.getOrNull() ?: return listOf(normalized)
+        val host = parsed.host.lowercase()
+        val path = parsed.path.trim('/')
+        val lower = path.lowercase()
+
+        // Playlists are already complete collections and should not be rewritten.
+        if (lower == "playlist" || parsed.query.orEmpty().contains("list=")) {
+            return listOf(normalized)
+        }
+
+        // A normal video/Short URL is a single item, not a channel root.
+        if (host == "youtu.be" || lower.startsWith("watch") || lower.startsWith("shorts/")) {
+            return listOf(normalized)
+        }
+
+        val parts = path.split('/').filter { it.isNotBlank() }
+        if (parts.isEmpty()) return listOf(normalized)
+
+        val isChannel = parts.first().startsWith("@") ||
+            parts.first().lowercase() in setOf("channel", "c", "user")
+        if (!isChannel) return listOf(normalized)
+
+        // Strip share/tracking parameters (for example ?si=...) from channel URLs.
+        // Also remove an existing tab suffix so the app can merge all public tabs.
+        val baseParts = if (parts.last().lowercase() in setOf("videos", "shorts", "streams", "featured")) {
+            parts.dropLast(1)
+        } else {
+            parts
+        }
+        val basePath = baseParts.joinToString("/")
+        val base = "${parsed.protocol}://${parsed.host}/$basePath"
+
+        return listOf(
+            "$base/videos",
+            "$base/shorts",
+            "$base/streams"
+        )
+    }
+
     private fun isFacebookUrl(url: String): Boolean {
         val lower = normalizeInputUrl(url).lowercase()
         return "facebook.com" in lower || "fb.watch" in lower
@@ -398,7 +469,8 @@ class DownloaderEngine(private val context: Context) {
     private fun isInstagramUrl(url: String): Boolean =
         "instagram.com" in normalizeInputUrl(url).lowercase()
 
-    private fun isTikTokUrl(url: String): Boolean =
+    // Technical host matching only; this is never shown as app branding or promotion.
+    private fun isShortVideoSourceUrl(url: String): Boolean =
         "tiktok.com" in normalizeInputUrl(url).lowercase()
 
     private fun isInstagramProfileUrl(url: String): Boolean {
@@ -409,8 +481,8 @@ class DownloaderEngine(private val context: Context) {
         return first !in setOf("reel", "p", "stories", "accounts", "explore", "direct", "tv")
     }
 
-    private fun isTikTokProfileUrl(url: String): Boolean {
-        if (!isTikTokUrl(url)) return false
+    private fun isShortVideoProfileUrl(url: String): Boolean {
+        if (!isShortVideoSourceUrl(url)) return false
         val path = runCatching { URL(normalizeInputUrl(url)).path.trim('/').lowercase() }.getOrDefault("")
         return path.startsWith("@") && !path.contains("/video/")
     }

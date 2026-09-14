@@ -9,6 +9,7 @@ import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
 import com.android.billingclient.api.ProductDetails
+import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
 import com.android.billingclient.api.QueryProductDetailsParams
@@ -28,7 +29,9 @@ class BillingManager(context: Context) : PurchasesUpdatedListener {
 
     private val billingClient = BillingClient.newBuilder(context.applicationContext)
         .setListener(this)
-        .enablePendingPurchases()
+        .enablePendingPurchases(
+            PendingPurchasesParams.newBuilder().enableOneTimeProducts().build()
+        )
         .build()
 
     fun start() {
@@ -45,13 +48,13 @@ class BillingManager(context: Context) : PurchasesUpdatedListener {
                     refreshPurchases()
                     queryProduct()
                 } else {
-                    statusText.value = "Google Play billing unavailable"
+                    statusText.value = "App-store billing unavailable"
                 }
             }
 
             override fun onBillingServiceDisconnected() {
                 connected = false
-                statusText.value = "Google Play disconnected"
+                statusText.value = "App-store billing disconnected"
             }
         })
     }
@@ -74,7 +77,7 @@ class BillingManager(context: Context) : PurchasesUpdatedListener {
         val offer = details.subscriptionOfferDetails
             ?.firstOrNull { it.offerToken.isNotBlank() }
         if (offer == null) {
-            statusText.value = "Create an active base plan in Play Console"
+            statusText.value = "No active subscription offer is available"
             return
         }
         val productParams = BillingFlowParams.ProductDetailsParams.newBuilder()
@@ -86,7 +89,7 @@ class BillingManager(context: Context) : PurchasesUpdatedListener {
             .build()
         val result = billingClient.launchBillingFlow(activity, params)
         if (result.responseCode != BillingClient.BillingResponseCode.OK) {
-            statusText.value = result.debugMessage.ifBlank { "Unable to open Google Play purchase" }
+            statusText.value = result.debugMessage.ifBlank { "Unable to open the app-store purchase screen" }
         }
     }
 

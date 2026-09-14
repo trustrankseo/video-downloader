@@ -8,11 +8,9 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -33,37 +31,31 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val Ink = Color(0xFF08101E)
-private val InkSoft = Color(0xFF0D1728)
-private val CardDark = Color(0xFF111D31)
-private val Cyan = Color(0xFF55DDF7)
-private val Blue = Color(0xFF5B7CFF)
-private val Purple = Color(0xFF9D6CFF)
+private val Ink: Color get() = AppearanceRuntime.background
+private val InkSoft: Color get() = AppearanceRuntime.surface
+private val CardDark: Color get() = AppearanceRuntime.surfaceVariant
+private val Cyan: Color get() = AppearanceRuntime.accentSecondary
+private val Blue: Color get() = AppearanceRuntime.activeAccent
+private val Purple: Color get() = AppearanceRuntime.accentTertiary
 private val Success = Color(0xFF59D99A)
 private val Danger = Color(0xFFFF5C6C)
 private val Warning = Color(0xFFFFC857)
-private val Muted = Color(0xFF91A1B9)
-private val WhiteSoft = Color(0xFFF5F8FF)
+private val Muted: Color get() = AppearanceRuntime.muted
+private val WhiteSoft: Color get() = AppearanceRuntime.onSurface
 
 private data class PlatformBrand(val name: String, val mark: String, val color: Color)
 
-private val platformBrands = listOf(
-    PlatformBrand("YouTube", "▶", Color(0xFFFF0033)),
-    PlatformBrand("Facebook", "f", Color(0xFF1877F2)),
-    PlatformBrand("Instagram", "◎", Color(0xFFE4405F)),
-    PlatformBrand("TikTok", "♪", Color(0xFF25F4EE)),
-    PlatformBrand("RedNote", "小", Color(0xFFFF2442)),
-    PlatformBrand("X / Twitter", "X", Color(0xFF16181C)),
-    PlatformBrand("Reddit", "r", Color(0xFFFF4500)),
-    PlatformBrand("Vimeo", "v", Color(0xFF1AB7EA)),
-    PlatformBrand("Twitch", "T", Color(0xFF9146FF)),
-    PlatformBrand("SoundCloud", "≋", Color(0xFFFF5500)),
-    PlatformBrand("Pinterest", "P", Color(0xFFE60023)),
-    PlatformBrand("Bilibili", "B", Color(0xFF00A1D6)),
-    PlatformBrand("Dailymotion", "d", Color(0xFF00AAFF))
-)
+private val publicMediaBrand = PlatformBrand("Public media", "↓", Blue)
 
 class MainActivity : ComponentActivity() {
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (hasAcceptedPrivacyPolicy(this)) {
+            ReferralManager(this).captureReferralUri(intent.data)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -72,7 +64,13 @@ class MainActivity : ComponentActivity() {
                 if (showSplash) {
                     AnimatedSplash { showSplash = false }
                 } else {
-                    DownloaderScreen()
+                    PrivacyConsentGate {
+                        LaunchedEffect(Unit) {
+                            (application as? DownloaderApp)?.initializeMediaEngine()
+                            ReferralManager(this@MainActivity).captureReferralUri(intent?.data)
+                        }
+                        AppMenuShell()
+                    }
                 }
             }
         }
@@ -81,22 +79,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun PremiumTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            primary = Cyan,
-            secondary = Purple,
-            tertiary = Blue,
-            background = Ink,
-            surface = InkSoft,
-            surfaceVariant = CardDark,
-            onPrimary = Ink,
-            onBackground = WhiteSoft,
-            onSurface = WhiteSoft,
-            onSurfaceVariant = Muted,
-            error = Danger
-        ),
-        content = content
-    )
+    UniversalDownloaderTheme(content)
 }
 
 @Composable
@@ -149,13 +132,13 @@ private fun AnimatedSplash(onFinished: () -> Unit) {
             Spacer(Modifier.height(18.dp))
             Text(
                 "Universal Downloader",
-                color = Color.White.copy(alpha = alpha.value),
+                color = WhiteSoft.copy(alpha = alpha.value),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.ExtraBold
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "One app • many platforms",
+                "Independent public-media utility",
                 color = Muted.copy(alpha = alpha.value),
                 style = MaterialTheme.typography.bodyMedium
             )
@@ -163,20 +146,21 @@ private fun AnimatedSplash(onFinished: () -> Unit) {
             LinearProgressIndicator(
                 modifier = Modifier.width(180.dp).clip(RoundedCornerShape(99.dp)),
                 color = Cyan,
-                trackColor = Color.White.copy(alpha = 0.08f)
+                trackColor = WhiteSoft.copy(alpha = 0.08f)
             )
         }
     }
 }
 
 @Composable
-private fun DownloaderScreen(vm: DownloaderViewModel = viewModel()) {
+fun DownloaderScreen(vm: DownloaderViewModel = viewModel()) {
     val ui by vm.state
     var tab by remember { mutableIntStateOf(0) }
     var singleUrl by remember { mutableStateOf("") }
     var bulkUrls by remember { mutableStateOf("") }
     var collectionUrl by remember { mutableStateOf("") }
     var preset by remember { mutableStateOf(FormatPreset.VIDEO_MP4) }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
 
     val completed = ui.tasks.count { it.status == DownloadStatus.COMPLETE }
     val failed = ui.tasks.count { it.status == DownloadStatus.FAILED }
@@ -189,23 +173,35 @@ private fun DownloaderScreen(vm: DownloaderViewModel = viewModel()) {
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color(0xFF07101E), Color(0xFF0A1426), Color(0xFF08101E))
+                        listOf(Ink, InkSoft, Ink)
                     )
                 )
                 .padding(padding),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            item { ModeSelector(selected = tab, onSelect = { tab = it }) }
             item {
-                HeaderCard(
-                    running = ui.running,
-                    status = ui.statusLine,
-                    onUpdateEngine = vm::updateEngine
+                NativeQuickActions(
+                    onPaste = {
+                        val pasted = clipboard.getText()?.text?.trim().orEmpty()
+                        if (pasted.isNotBlank()) {
+                            when (tab) {
+                                0 -> singleUrl = pasted
+                                1 -> bulkUrls = if (bulkUrls.isBlank()) pasted else bulkUrls.trimEnd() + "\n" + pasted
+                                else -> collectionUrl = pasted
+                            }
+                        }
+                    },
+                    onClear = {
+                        when (tab) {
+                            0 -> singleUrl = ""
+                            1 -> bulkUrls = ""
+                            else -> collectionUrl = ""
+                        }
+                    }
                 )
             }
-
-            item { PlatformStrip() }
-            item { ModeSelector(selected = tab, onSelect = { tab = it }) }
 
             item {
                 DownloadComposer(
@@ -241,8 +237,27 @@ private fun DownloaderScreen(vm: DownloaderViewModel = viewModel()) {
                 }
             }
 
+            if (!ui.running && failed > 0) {
+                item {
+                    OutlinedButton(
+                        onClick = {
+                            val retryUrls = ui.tasks
+                                .filter { it.status == DownloadStatus.FAILED }
+                                .joinToString("\n") { it.url }
+                            if (retryUrls.isNotBlank()) vm.downloadBulk(retryUrls, preset)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        border = BorderStroke(1.dp, Warning.copy(alpha = 0.6f))
+                    ) {
+                        Text("RETRY FAILED ($failed)", color = Warning, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
             if (ui.tasks.isEmpty()) {
-                item { EmptyState(vm.outputPath()) }
+                item {
+                    if (ui.running) DiscoveryState(ui.statusLine) else EmptyState(vm.outputPath())
+                }
             } else {
                 items(ui.tasks, key = { it.id }) { task -> TaskCard(task) }
             }
@@ -258,7 +273,7 @@ private fun HeaderCard(running: Boolean, status: String, onUpdateEngine: () -> U
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))
+        border = BorderStroke(1.dp, WhiteSoft.copy(alpha = 0.10f))
     ) {
         Box(
             modifier = Modifier
@@ -280,7 +295,7 @@ private fun HeaderCard(running: Boolean, status: String, onUpdateEngine: () -> U
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Universal Downloader", fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
-                        Text("Premium multi-platform downloader", color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.bodySmall)
+                        Text("Independent media downloader", color = WhiteSoft.copy(alpha = 0.72f), style = MaterialTheme.typography.bodySmall)
                     }
                     TextButton(onClick = onUpdateEngine, enabled = !running) {
                         Text("Update", color = if (running) Muted else Color.White)
@@ -309,35 +324,19 @@ private fun HeaderCard(running: Boolean, status: String, onUpdateEngine: () -> U
 
 @Composable
 private fun PlatformStrip() {
-    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("SUPPORTED PUBLIC PLATFORMS", style = MaterialTheme.typography.labelSmall, color = Muted)
-            Spacer(Modifier.weight(1f))
-            Text("Auto detect", style = MaterialTheme.typography.labelSmall, color = Cyan)
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            platformBrands.forEach { PlatformPill(it) }
-        }
-    }
-}
-
-@Composable
-private fun PlatformPill(brand: PlatformBrand) {
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
         color = CardDark,
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+        border = BorderStroke(1.dp, WhiteSoft.copy(alpha = 0.08f))
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            PlatformMark(brand)
-            Spacer(Modifier.width(7.dp))
-            Text(brand.name, style = MaterialTheme.typography.labelMedium)
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("SUPPORTED PUBLIC MEDIA LINKS", style = MaterialTheme.typography.labelMedium, color = Cyan)
+            Text(
+                "Paste a compatible public URL. Availability depends on the source and your authorization to save its content.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Muted
+            )
         }
     }
 }
@@ -353,16 +352,14 @@ private fun PlatformMark(brand: PlatformBrand, size: Int = 27) {
     ) {
         Text(
             brand.mark,
-            color = if (brand.name == "TikTok") Ink else Color.White,
+            color = Color.White,
             fontWeight = FontWeight.Black,
             style = MaterialTheme.typography.labelLarge
         )
     }
 }
 
-private fun brandFor(platform: String): PlatformBrand =
-    platformBrands.firstOrNull { platform.startsWith(it.name.substringBefore(" /"), ignoreCase = true) }
-        ?: PlatformBrand("Web", "↗", Blue)
+private fun brandFor(platform: String): PlatformBrand = publicMediaBrand.copy(name = platform)
 
 @Composable
 private fun ModeSelector(selected: Int, onSelect: (Int) -> Unit) {
@@ -411,7 +408,7 @@ private fun DownloadComposer(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = InkSoft),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+        border = BorderStroke(1.dp, WhiteSoft.copy(alpha = 0.08f))
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
             Column {
@@ -455,7 +452,7 @@ private fun DownloadComposer(
 
             if (tab == 2) {
                 Text(
-                    "Public collection discovery depends on what each platform exposes without account authentication.",
+                    "Public collection discovery depends on what each source exposes without account authentication.",
                     style = MaterialTheme.typography.labelSmall,
                     color = Muted
                 )
@@ -484,7 +481,7 @@ private fun PremiumField(
         shape = RoundedCornerShape(16.dp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = Cyan,
-            unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
+            unfocusedBorderColor = WhiteSoft.copy(alpha = 0.12f),
             focusedContainerColor = CardDark.copy(alpha = 0.72f),
             unfocusedContainerColor = CardDark.copy(alpha = 0.56f),
             cursorColor = Cyan
@@ -506,7 +503,7 @@ private fun FormatChip(text: String, selected: Boolean, onClick: () -> Unit) {
         onClick = onClick,
         shape = RoundedCornerShape(12.dp),
         color = if (selected) Cyan.copy(alpha = 0.14f) else CardDark,
-        border = BorderStroke(1.dp, if (selected) Cyan.copy(alpha = 0.72f) else Color.White.copy(alpha = 0.08f))
+        border = BorderStroke(1.dp, if (selected) Cyan.copy(alpha = 0.72f) else WhiteSoft.copy(alpha = 0.08f))
     ) {
         Text(text, modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp), style = MaterialTheme.typography.labelMedium, color = if (selected) Cyan else Muted)
     }
@@ -596,7 +593,7 @@ private fun TaskCard(task: DownloadTask) {
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CardDark),
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
+        border = BorderStroke(1.dp, WhiteSoft.copy(alpha = 0.06f))
     ) {
         Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -613,7 +610,7 @@ private fun TaskCard(task: DownloadTask) {
                 progress = task.progress,
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(99.dp)),
                 color = statusColor,
-                trackColor = Color.White.copy(alpha = 0.07f)
+                trackColor = WhiteSoft.copy(alpha = 0.07f)
             )
             Text(task.message, color = Muted, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
@@ -625,7 +622,7 @@ private fun EmptyState(outputPath: String) {
     Card(
         colors = CardDefaults.cardColors(containerColor = InkSoft),
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
+        border = BorderStroke(1.dp, WhiteSoft.copy(alpha = 0.06f))
     ) {
         Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Ready to download", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
@@ -640,3 +637,61 @@ private fun bulkUrlCount(raw: String): Int = raw.lineSequence()
     .filter { it.startsWith("http://") || it.startsWith("https://") }
     .distinct()
     .count()
+
+
+@Composable
+private fun NativeQuickActions(
+    onPaste: () -> Unit,
+    onClear: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        OutlinedButton(
+            onClick = onPaste,
+            modifier = Modifier.weight(1f),
+            border = BorderStroke(1.dp, Cyan.copy(alpha = 0.45f))
+        ) {
+            Text("PASTE LINK", color = Cyan, fontWeight = FontWeight.Bold)
+        }
+        OutlinedButton(
+            onClick = onClear,
+            modifier = Modifier.weight(1f),
+            border = BorderStroke(1.dp, WhiteSoft.copy(alpha = 0.16f))
+        ) {
+            Text("CLEAR INPUT", color = WhiteSoft.copy(alpha = 0.78f), fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+
+@Composable
+private fun DiscoveryState(status: String) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = InkSoft),
+        border = BorderStroke(1.dp, Blue.copy(alpha = 0.28f))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(28.dp),
+                strokeWidth = 3.dp,
+                color = Blue
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Fetching channel videos + Shorts…", fontWeight = FontWeight.ExtraBold)
+                Text(
+                    status.ifBlank { "Reading public channel tabs" },
+                    color = Muted,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
