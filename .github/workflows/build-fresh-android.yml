@@ -32,6 +32,8 @@ jobs:
             exit 1
           fi
           echo "$HUAWEI_KEYSTORE_B64" | base64 -d > signing/huawei-release.jks
+      - name: Run unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
       - name: Build signed Huawei release APK
         env:
           HUAWEI_KEYSTORE_PASSWORD: ${{ secrets.HUAWEI_KEYSTORE_PASSWORD }}
