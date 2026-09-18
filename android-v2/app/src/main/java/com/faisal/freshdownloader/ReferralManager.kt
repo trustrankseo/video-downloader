@@ -4,8 +4,6 @@ import android.content.Context
 import android.net.Uri
 import com.android.installreferrer.api.InstallReferrerClient
 import com.android.installreferrer.api.InstallReferrerStateListener
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -34,8 +32,7 @@ class ReferralManager(context: Context) {
         val eligibleForReferral: Boolean,
         val pendingReferralCode: String?,
         val referralActivated: Boolean,
-        val shareCount: Int,
-        val bonusTrials: Int
+        val shareCount: Int
     )
 
     sealed class ApplyResult {
@@ -60,7 +57,6 @@ class ReferralManager(context: Context) {
     }
 
     fun snapshot(): Snapshot {
-        val access = SubscriptionAccess(appContext)
         return Snapshot(
             installId = installId(),
             referralCode = referralCode(),
@@ -69,8 +65,7 @@ class ReferralManager(context: Context) {
             eligibleForReferral = isInstallEligible(),
             pendingReferralCode = prefs.getString(KEY_PENDING_CODE, null),
             referralActivated = prefs.getBoolean(KEY_REFERRAL_ACTIVATED, false),
-            shareCount = prefs.getInt(KEY_SHARES, 0).coerceAtLeast(0),
-            bonusTrials = access.referralBonusTrials()
+            shareCount = prefs.getInt(KEY_SHARES, 0).coerceAtLeast(0)
         )
     }
 
@@ -110,8 +105,6 @@ class ReferralManager(context: Context) {
         if (prefs.getBoolean(KEY_REFERRAL_ACTIVATED, false)) return false
         val pending = prefs.getString(KEY_PENDING_CODE, null).orEmpty()
         if (pending.isBlank()) return false
-        val added = SubscriptionAccess(appContext).addReferralBonusTrial()
-        if (!added) return false
         prefs.edit().putBoolean(KEY_REFERRAL_ACTIVATED, true).apply()
         return true
     }
@@ -122,9 +115,7 @@ class ReferralManager(context: Context) {
 
     fun shareText(): String {
         val code = referralCode()
-        val referrer = URLEncoder.encode("ref_code=$code&utm_source=referral&utm_medium=organic_share", StandardCharsets.UTF_8.name())
-        val playUrl = "https://play.google.com/store/apps/details?id=${appContext.packageName}&referrer=$referrer"
-        return "Try Universal Downloader. Use my referral code $code after install to unlock a bonus premium trial after your first successful download.\n$playUrl"
+        return "Try Universal Downloader. Use my referral code $code after install. The referral activates after the first successful download. Find Universal Downloader on Uptodown."
     }
 
     fun captureReferralUri(uri: Uri?) {
