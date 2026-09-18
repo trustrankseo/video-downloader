@@ -68,6 +68,8 @@ class MainActivity : ComponentActivity() {
                         LaunchedEffect(Unit) {
                             (application as? DownloaderApp)?.initializeMediaEngine()
                             ReferralManager(this@MainActivity).captureReferralUri(intent?.data)
+                            AdsManager.initialize(this@MainActivity)
+                            AdsManager.preloadInterstitial(this@MainActivity)
                         }
                         AppMenuShell()
                     }
@@ -155,6 +157,22 @@ private fun AnimatedSplash(onFinished: () -> Unit) {
 @Composable
 fun DownloaderScreen(vm: DownloaderViewModel = viewModel()) {
     val ui by vm.state
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val activity = context as? android.app.Activity
+
+    LaunchedEffect(ui.adEventId, ui.running) {
+        val eventId = ui.adEventId
+        if (eventId != 0L && !ui.running) {
+            if (activity != null) {
+                AdsManager.showInterstitialIfEligible(
+                    activity = activity,
+                    operationSucceeded = true,
+                    downloadRunning = false
+                )
+            }
+            vm.consumeAdEvent(eventId)
+        }
+    }
     var tab by remember { mutableIntStateOf(0) }
     var singleUrl by remember { mutableStateOf("") }
     var bulkUrls by remember { mutableStateOf("") }
@@ -167,7 +185,10 @@ fun DownloaderScreen(vm: DownloaderViewModel = viewModel()) {
     val cancelled = ui.tasks.count { it.status == DownloadStatus.CANCELLED }
     val active = ui.tasks.count { it.status == DownloadStatus.DOWNLOADING }
 
-    Scaffold(containerColor = Ink) { padding ->
+    Scaffold(
+        containerColor = Ink,
+        bottomBar = { AppLovinBanner() }
+    ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
