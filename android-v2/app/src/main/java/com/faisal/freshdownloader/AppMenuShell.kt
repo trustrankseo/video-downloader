@@ -1,6 +1,5 @@
 package com.faisal.freshdownloader
 
-import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -28,8 +27,7 @@ private const val SUPPORT_EMAIL = "sayadzubair0786@gmail.com"
 
 private enum class MenuPage(val title: String, val symbol: String) {
     Downloads("Downloader", "↓"),
-    Referral("Refer & Earn", "↗"),
-    Premium("Premium", "★"),
+    Referral("Refer & Share", "↗"),
     Device("Device & Eligibility", "✓"),
     Engine("App & Engine", "⚙"),
     Appearance("Appearance", "◐"),
@@ -144,7 +142,6 @@ fun AppMenuShell(vm: DownloaderViewModel = viewModel()) {
                 when (selected) {
                     MenuPage.Downloads -> DownloaderScreen(vm)
                     MenuPage.Referral -> SimplePage { ReferralCard() }
-                    MenuPage.Premium -> PremiumPage()
                     MenuPage.Device -> DeviceEligibilityPage()
                     MenuPage.Engine -> EnginePage(vm)
                     MenuPage.Appearance -> AppearancePage()
@@ -197,52 +194,6 @@ private fun SimplePage(content: @Composable ColumnScope.() -> Unit) {
         verticalArrangement = Arrangement.spacedBy(14.dp),
         content = content
     )
-}
-
-@Composable
-private fun PremiumPage() {
-    val context = LocalContext.current
-    val activity = context as? Activity
-    val billing = remember { BillingManager(context) }
-    val access = remember { SubscriptionAccess(context) }
-    var refresh by remember { mutableIntStateOf(0) }
-
-    DisposableEffect(Unit) {
-        billing.start()
-        onDispose { billing.close() }
-    }
-
-    val premium by billing.isPremium
-    val price by billing.priceText
-    val status by billing.statusText
-    val trialsRemaining = remember(refresh) { access.trialsRemaining() }
-
-    SimplePage {
-        Text("Premium Access", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
-        Text(
-            "Single downloads stay free. Bulk and Channel/Profile use your available trials, then Premium.",
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
-        )
-        SubscriptionCard(
-            premium = premium,
-            trialsRemaining = trialsRemaining,
-            priceText = price,
-            status = status,
-            onUpgrade = {
-                if (activity != null) {
-                    billing.purchase(activity)
-                } else {
-                    billing.statusText.value = "Unable to open the app-store purchase screen"
-                }
-            },
-            onRestore = {
-                billing.restore()
-                refresh++
-            }
-        )
-        InfoTile("Included", "Bulk downloads • Channel/Profile tools • purchase restore")
-        InfoTile("Referral bonus", "Successful referral activation can add bonus trial access up to the app limit.")
-    }
 }
 
 @Composable
@@ -433,7 +384,7 @@ private fun ReportProblemPage() {
     var category by rememberSaveable { mutableStateOf("Download issue") }
     var subject by rememberSaveable { mutableStateOf("") }
     var details by rememberSaveable { mutableStateOf("") }
-    val categories = listOf("Download issue", "Bulk/Channel issue", "Premium issue", "Referral issue", "App crash", "Other")
+    val categories = listOf("Download issue", "Bulk/Channel issue", "Ads issue", "Referral issue", "App crash", "Other")
 
     SimplePage {
         Text("Report a Problem", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
