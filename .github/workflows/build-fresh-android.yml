@@ -11,6 +11,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      APPLOVIN_SDK_KEY: ${{ secrets.APPLOVIN_SDK_KEY }}
+      APPLOVIN_BANNER_AD_UNIT_ID: ${{ secrets.APPLOVIN_BANNER_AD_UNIT_ID }}
+      APPLOVIN_INTERSTITIAL_AD_UNIT_ID: ${{ secrets.APPLOVIN_INTERSTITIAL_AD_UNIT_ID }}
     defaults:
       run:
         working-directory: android-v2
@@ -52,6 +56,6 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: UniversalDownloader-v1.4.9-Huawei-Review-Fix
+          name: UniversalDownloader-v1.5.0-Uptodown-AppLovin
           path: android-v2/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
