@@ -19,7 +19,8 @@ data class UiState(
     val running: Boolean = false,
     val statusLine: String = "Ready for public links",
     val tasks: List<DownloadTask> = emptyList(),
-    val discoveredCount: Int = 0
+    val discoveredCount: Int = 0,
+    val adEventId: Long = 0L
 )
 
 fun detectPlatform(url: String): String {
