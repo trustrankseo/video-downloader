@@ -49,9 +49,11 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
         state.value = UiState(running = true, statusLine = "Starting…", tasks = listOf(task))
         viewModelScope.launch {
             runOne(task, format)
+            val hasSuccess = !abortRequested && state.value.tasks.any { it.status == DownloadStatus.COMPLETE }
             state.value = state.value.copy(
                 running = false,
-                statusLine = if (abortRequested) "Download stopped" else "Finished"
+                statusLine = if (abortRequested) "Download stopped" else "Finished",
+                adEventId = if (hasSuccess) System.nanoTime() else 0L
             )
         }
     }
@@ -74,9 +76,11 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
                 runOne(task, format)
             }
             if (abortRequested) cancelRemainingQueued()
+            val hasSuccess = !abortRequested && state.value.tasks.any { it.status == DownloadStatus.COMPLETE }
             state.value = state.value.copy(
                 running = false,
-                statusLine = if (abortRequested) "Bulk queue stopped" else "Bulk queue finished"
+                statusLine = if (abortRequested) "Bulk queue stopped" else "Bulk queue finished",
+                adEventId = if (hasSuccess) System.nanoTime() else 0L
             )
         }
     }
@@ -125,10 +129,18 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
             }
 
             if (abortRequested) cancelRemainingQueued()
+            val hasSuccess = !abortRequested && state.value.tasks.any { it.status == DownloadStatus.COMPLETE }
             state.value = state.value.copy(
                 running = false,
-                statusLine = if (abortRequested) "Channel/profile download stopped" else "Collection finished"
+                statusLine = if (abortRequested) "Channel/profile download stopped" else "Collection finished",
+                adEventId = if (hasSuccess) System.nanoTime() else 0L
             )
+        }
+    }
+
+    fun consumeAdEvent(eventId: Long) {
+        if (eventId != 0L && state.value.adEventId == eventId) {
+            state.value = state.value.copy(adEventId = 0L)
         }
     }
 
