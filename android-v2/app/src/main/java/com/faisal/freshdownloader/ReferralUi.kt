@@ -54,7 +54,7 @@ fun ReferralCard() {
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Refer & Earn", fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
+                    Text("Refer & Share", fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
                     Text(
                         "Organic sharing • install eligibility • privacy-safe device record",
                         color = Color.White.copy(alpha = 0.68f),
@@ -95,7 +95,7 @@ fun ReferralCard() {
                         }) { Text("COPY") }
                     }
                     Text(
-                        "A referred new install can apply one code. The bonus unlocks after its first successful download.",
+                        "A referred new install can apply one code. The referral activates after its first successful download.",
                         color = Color.White.copy(alpha = 0.66f),
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -131,11 +131,11 @@ fun ReferralCard() {
                 OutlinedButton(
                     onClick = {
                         message = when (manager.applyReferralCode(input)) {
-                            ReferralManager.ApplyResult.Accepted -> "Code accepted. Complete one successful download to unlock +1 bonus premium trial."
+                            ReferralManager.ApplyResult.Accepted -> "Code accepted. Complete one successful download to activate this referral."
                             ReferralManager.ApplyResult.AlreadyUsed -> "A referral is already attached to this installation."
                             ReferralManager.ApplyResult.OwnCode -> "You cannot use your own referral code."
                             ReferralManager.ApplyResult.Invalid -> "Invalid referral code."
-                            ReferralManager.ApplyResult.NotEligible -> "This installation is no longer eligible for a referral reward."
+                            ReferralManager.ApplyResult.NotEligible -> "This installation is no longer eligible for referral linking."
                         }
                         snapshot = manager.snapshot()
                     },
@@ -148,13 +148,13 @@ fun ReferralCard() {
 
             if (snapshot.pendingReferralCode != null && !snapshot.referralActivated) {
                 Text(
-                    "Referral ${snapshot.pendingReferralCode} is pending • complete one successful download to activate the bonus.",
+                    "Referral ${snapshot.pendingReferralCode} is pending • complete one successful download to activate.",
                     color = Color(0xFFFFC857),
                     style = MaterialTheme.typography.bodySmall
                 )
             } else if (snapshot.referralActivated) {
                 Text(
-                    "Referral activated • ${snapshot.bonusTrials} bonus premium trial${if (snapshot.bonusTrials == 1) "" else "s"} earned on this install.",
+                    "Referral activated • recorded for this install.",
                     color = Color(0xFF59D99A),
                     style = MaterialTheme.typography.bodySmall
                 )
