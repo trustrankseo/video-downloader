@@ -3,6 +3,13 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+fun buildConfigString(value: String): String =
+    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+val appLovinSdkKey = providers.environmentVariable("APPLOVIN_SDK_KEY").orElse("").get()
+val appLovinBannerAdUnitId = providers.environmentVariable("APPLOVIN_BANNER_AD_UNIT_ID").orElse("").get()
+val appLovinInterstitialAdUnitId = providers.environmentVariable("APPLOVIN_INTERSTITIAL_AD_UNIT_ID").orElse("").get()
+
 android {
     namespace = "com.faisal.freshdownloader"
     compileSdk = 35
@@ -11,8 +18,12 @@ android {
         applicationId = "com.faisal.freshdownloader"
         minSdk = 24
         targetSdk = 35
-        versionCode = 34
-        versionName = "1.4.9"
+        versionCode = 35
+        versionName = "1.5.0"
+
+        buildConfigField("String", "APPLOVIN_SDK_KEY", buildConfigString(appLovinSdkKey))
+        buildConfigField("String", "APPLOVIN_BANNER_AD_UNIT_ID", buildConfigString(appLovinBannerAdUnitId))
+        buildConfigField("String", "APPLOVIN_INTERSTITIAL_AD_UNIT_ID", buildConfigString(appLovinInterstitialAdUnitId))
 
         vectorDrawables {
             useSupportLibrary = true
@@ -84,13 +95,15 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.ui:ui-viewbinding")
     implementation("androidx.compose.material3:material3")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    implementation("com.android.billingclient:billing-ktx:7.1.1")
     implementation("com.android.installreferrer:installreferrer:2.2")
+    implementation("com.applovin:applovin-sdk:13.6.4")
+    implementation("com.google.android.gms:play-services-ads-identifier:18.3.0")
 
     val youtubedlAndroid = "0.18.1"
     implementation("io.github.junkfood02.youtubedl-android:library:$youtubedlAndroid")
