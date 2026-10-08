@@ -20,6 +20,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -150,9 +152,35 @@ class DownloaderEngine(private val context: Context) {
                 activeProcessIds.remove(processId)
                 throw CancellationException("Cancelled")
             }
+
+            val firstProgressSeen = AtomicBoolean(false)
+            val mediaInfoTimedOut = AtomicBoolean(false)
+            val watchdogExecutor = Executors.newSingleThreadScheduledExecutor()
+            val watchdog = watchdogExecutor.schedule({
+                if (!firstProgressSeen.get() && activeProcessIds.contains(processId)) {
+                    mediaInfoTimedOut.set(true)
+                    runCatching { YoutubeDL.getInstance().destroyProcessById(processId) }
+                }
+            }, MEDIA_INFO_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+
             try {
-                val response = YoutubeDL.getInstance().execute(request, processId) { progress, eta, _ ->
-                    if (!cancelRequested.get()) onProgress(progress, eta)
+                val response = try {
+                    YoutubeDL.getInstance().execute(request, processId) { progress, eta, _ ->
+                        if (progress > 0f) {
+                            firstProgressSeen.set(true)
+                            watchdog.cancel(false)
+                        }
+                        if (!cancelRequested.get()) onProgress(progress, eta)
+                    }
+                } catch (failure: Throwable) {
+                    if (mediaInfoTimedOut.get()) {
+                        throw IllegalStateException(
+                            "MEDIA_INFO_TIMEOUT: YouTube did not return playable media info within " +
+                                "$MEDIA_INFO_TIMEOUT_SECONDS seconds. The extractor/client challenge may need a retry.",
+                            failure
+                        )
+                    }
+                    throw failure
                 }
 
                 if (cancelRequested.get()) throw CancellationException("Cancelled")
@@ -184,6 +212,8 @@ class DownloaderEngine(private val context: Context) {
                 onProgress(100f, 0L)
                 savedPath
             } finally {
+                watchdog.cancel(true)
+                watchdogExecutor.shutdownNow()
                 activeProcessIds.remove(processId)
                 runCatching { jobDir.deleteRecursively() }
             }
@@ -701,5 +731,6 @@ class DownloaderEngine(private val context: Context) {
     companion object {
         private const val KEY_YOUTUBE_ENGINE_UPDATE_MS = "youtube_engine_update_ms"
         private const val YOUTUBE_ENGINE_REFRESH_MS = 12L * 60L * 60L * 1000L
+        private const val MEDIA_INFO_TIMEOUT_SECONDS = 75L
     }
 }
