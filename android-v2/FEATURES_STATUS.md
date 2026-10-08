@@ -1,6 +1,6 @@
 # Universal Downloader — Feature Status & How It Works
 
-Current user-facing version: **v1.5.0**
+Current user-facing version: **v1.6.0**
 
 A successful Android build confirms that the app compiles and packages correctly. Third-party media downloading remains source/extractor dependent and can change outside the app.
 
@@ -16,7 +16,7 @@ A successful Android build confirms that the app compiles and packages correctly
 - Clear Finished
 - Progress and ETA where available
 
-Version 1.5.0 does **not** gate Bulk or Channel/Profile behind a subscription.
+Version 1.6.0 does **not** gate Bulk or Channel/Profile behind a subscription.
 
 ### ✅ Sidebar
 - Downloader
@@ -29,7 +29,7 @@ Version 1.5.0 does **not** gate Bulk or Channel/Profile behind a subscription.
 - Contact Us
 - Report a Problem
 
-The old Premium purchase page and Google Billing integration are removed from v1.5.0.
+The old Premium purchase page and Google Billing integration are removed from v1.6.0.
 
 ### ✅ Uptodown review feedback prompt
 - Triggered only after real usage: at least 3 successful downloads
@@ -40,7 +40,7 @@ The old Premium purchase page and Google Billing integration are removed from v1
 - No fake/incentivized review text is generated; users are asked for their own experience
 
 ### ✅ AppLovin MAX ads
-- AppLovin MAX SDK is integrated for v1.5.0.
+- AppLovin MAX SDK is integrated for v1.6.0.
 - A small banner is placed at the bottom of the Downloader screen.
 - Interstitial ads are requested only after a completed operation with at least one successful download.
 - Bulk and Channel/Profile operations trigger at most one interstitial after the whole operation, not one per item.
@@ -94,3 +94,19 @@ Universal Downloader is an independent utility and is not affiliated with, endor
 - Central fraud controls
 - Direct in-app support reporting
 - Server-side entitlement systems if subscriptions are reintroduced later
+
+
+## v1.6.0 quality gates
+
+A release is considered publishable only when all of these pass:
+
+- Host JVM unit tests
+- Android instrumented launch/privacy smoke test on an emulator
+- Release APK build
+- APK ZIP integrity and zipalign verification
+- APK Signature Scheme verification
+- Exact existing-update certificate match: MD5 `471d573bfd94138a052087a80679b4f4`
+- Exact certificate SHA-256 `146b8de20d69a75cecef7b949e2280a6779ae2590e4ed2af0c3f733a774af1ed`
+- arm64-v8a-only native-library gate
+- APK size no larger than 85 MiB
+- Production publishing only from `fresh-android-v2` after verification and emulator smoke tests pass
