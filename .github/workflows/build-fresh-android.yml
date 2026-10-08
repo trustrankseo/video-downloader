@@ -3,7 +3,7 @@ name: Universal Downloader Auto Green Release
 on:
   workflow_dispatch:
   push:
-    branches: [fresh-android-v2, audit-hardening-v1.6.0]
+    branches: [fresh-android-v2, audit-hardening-v1.6.0, hotfix-download-engine-v1.6.1]
     paths:
       - "android-v2/**"
       - ".github/workflows/build-fresh-android.yml"
