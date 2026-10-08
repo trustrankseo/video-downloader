@@ -1,4 +1,5 @@
 name: Build Fresh Android APK
+# Manual rebuild verification requested 2026-10-08
 
 on:
   workflow_dispatch:
