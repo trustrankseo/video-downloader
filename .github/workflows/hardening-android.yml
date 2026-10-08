@@ -69,6 +69,7 @@ jobs:
           EXPECTED_PACKAGE="com.faisal.freshdownloader"
           EXPECTED_SHA256="146b8de20d69a75cecef7b949e2280a6779ae2590e4ed2af0c3f733a774af1ed"
           EXPECTED_MD5="471d573bfd94138a052087a80679b4f4"
+          BASELINE_VERSION_CODE=24
           MAX_BYTES=$((100 * 1024 * 1024))
 
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -1)"
@@ -94,7 +95,7 @@ jobs:
 
           test "$PACKAGE" = "$EXPECTED_PACKAGE"
           test -n "$VERSION_CODE"
-          test "$VERSION_CODE" -gt 0
+          test "$VERSION_CODE" -gt "$BASELINE_VERSION_CODE"
           test "$SHA256" = "$EXPECTED_SHA256"
           test "$MD5" = "$EXPECTED_MD5"
 
