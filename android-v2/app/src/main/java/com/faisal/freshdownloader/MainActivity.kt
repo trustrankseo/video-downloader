@@ -228,6 +228,7 @@ fun DownloaderScreen(vm: DownloaderViewModel = viewModel()) {
     var bulkUrls by remember { mutableStateOf("") }
     var collectionUrl by remember { mutableStateOf("") }
     var preset by remember { mutableStateOf(FormatPreset.VIDEO_MP4) }
+    var threads by rememberSaveable { mutableIntStateOf(3) }
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
 
     val completed = ui.tasks.count { it.status == DownloadStatus.COMPLETE }
@@ -285,10 +286,12 @@ fun DownloaderScreen(vm: DownloaderViewModel = viewModel()) {
                     onCollectionUrl = { collectionUrl = it },
                     preset = preset,
                     onPreset = { preset = it },
+                    threads = threads,
+                    onThreads = { threads = it.coerceIn(1, 8) },
                     running = ui.running,
                     onSingle = { vm.downloadSingle(singleUrl, preset) },
-                    onBulk = { vm.downloadBulk(bulkUrls, preset) },
-                    onCollection = { vm.downloadCollection(collectionUrl, preset) },
+                    onBulk = { vm.downloadBulk(bulkUrls, preset, threads) },
+                    onCollection = { vm.downloadCollection(collectionUrl, preset, threads) },
                     onStop = vm::stopDownloads
                 )
             }
@@ -308,19 +311,15 @@ fun DownloaderScreen(vm: DownloaderViewModel = viewModel()) {
                 }
             }
 
-            if (!ui.running && failed > 0) {
+            val retryable = failed + cancelled
+            if (!ui.running && retryable > 0) {
                 item {
                     OutlinedButton(
-                        onClick = {
-                            val retryUrls = ui.tasks
-                                .filter { it.status == DownloadStatus.FAILED }
-                                .joinToString("\n") { it.url }
-                            if (retryUrls.isNotBlank()) vm.downloadBulk(retryUrls, preset)
-                        },
+                        onClick = { vm.retryAll(if (tab == 0) 1 else threads) },
                         modifier = Modifier.fillMaxWidth(),
                         border = BorderStroke(1.dp, Warning.copy(alpha = 0.6f))
                     ) {
-                        Text("RETRY FAILED ($failed)", color = Warning, fontWeight = FontWeight.Bold)
+                        Text("↻  RETRY ALL ($retryable)", color = Warning, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -330,7 +329,15 @@ fun DownloaderScreen(vm: DownloaderViewModel = viewModel()) {
                     if (ui.running) DiscoveryState(ui.statusLine) else EmptyState(vm.outputPath())
                 }
             } else {
-                items(ui.tasks, key = { it.id }) { task -> TaskCard(task) }
+                items(ui.tasks, key = { it.id }) { task ->
+                    val canRetry = !ui.running &&
+                        (task.status == DownloadStatus.FAILED || task.status == DownloadStatus.CANCELLED)
+                    TaskCard(
+                        task = task,
+                        canRetry = canRetry,
+                        onRetry = { vm.retryTask(task.id, if (tab == 0) 1 else threads) }
+                    )
+                }
             }
 
             item { Spacer(Modifier.height(18.dp)) }
@@ -469,6 +476,8 @@ private fun DownloadComposer(
     onCollectionUrl: (String) -> Unit,
     preset: FormatPreset,
     onPreset: (FormatPreset) -> Unit,
+    threads: Int,
+    onThreads: (Int) -> Unit,
     running: Boolean,
     onSingle: () -> Unit,
     onBulk: () -> Unit,
@@ -505,17 +514,33 @@ private fun DownloadComposer(
 
             FormatSelector(preset, onPreset)
 
+            if (tab == 1 || tab == 2) {
+                ThreadSelector(threads = threads, onThreads = onThreads)
+            }
+
             when (tab) {
                 0 -> PremiumField(singleUrl, onSingleUrl, "Video URL", "https://...", true)
                 1 -> PremiumField(bulkUrls, onBulkUrls, "Bulk URLs — one per line", "https://...\nhttps://...", false, 6)
                 else -> PremiumField(collectionUrl, onCollectionUrl, "Channel / playlist / profile URL", "Paste public collection link", true)
             }
 
+            if (tab == 0 && InputUrlPolicy.isLikelyCollectionUrl(singleUrl)) {
+                Text(
+                    "Channel/profile/playlist link detected — use the Channel tab.",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Warning
+                )
+            }
+
             if (running) {
                 StopAction(onStop)
             } else {
                 when (tab) {
-                    0 -> PrimaryAction("DOWNLOAD VIDEO", InputUrlPolicy.isValidWebUrl(singleUrl), onSingle)
+                    0 -> PrimaryAction(
+                        "DOWNLOAD VIDEO",
+                        InputUrlPolicy.isValidWebUrl(singleUrl) && !InputUrlPolicy.isLikelyCollectionUrl(singleUrl),
+                        onSingle
+                    )
                     1 -> PrimaryAction("START ${bulkUrlCount(bulkUrls)} DOWNLOADS", bulkUrlCount(bulkUrls) > 0, onBulk)
                     else -> PrimaryAction("DISCOVER & DOWNLOAD", InputUrlPolicy.isValidWebUrl(collectionUrl), onCollection)
                 }
@@ -528,6 +553,47 @@ private fun DownloadComposer(
                     color = Muted
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun ThreadSelector(threads: Int, onThreads: (Int) -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = CardDark,
+        border = BorderStroke(1.dp, Cyan.copy(alpha = 0.22f))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("PARALLEL DOWNLOAD THREADS", style = MaterialTheme.typography.labelSmall, color = Muted)
+                Text(
+                    "$threads active at once",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Cyan,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            OutlinedButton(
+                onClick = { onThreads((threads - 1).coerceAtLeast(1)) },
+                enabled = threads > 1,
+                contentPadding = PaddingValues(horizontal = 13.dp, vertical = 6.dp)
+            ) { Text("−") }
+            Text(
+                threads.toString(),
+                modifier = Modifier.padding(horizontal = 13.dp),
+                fontWeight = FontWeight.ExtraBold,
+                color = WhiteSoft
+            )
+            OutlinedButton(
+                onClick = { onThreads((threads + 1).coerceAtMost(8)) },
+                enabled = threads < 8,
+                contentPadding = PaddingValues(horizontal = 13.dp, vertical = 6.dp)
+            ) { Text("+") }
         }
     }
 }
@@ -650,7 +716,11 @@ private fun StatChip(label: String, value: String, color: Color) {
 }
 
 @Composable
-private fun TaskCard(task: DownloadTask) {
+private fun TaskCard(
+    task: DownloadTask,
+    canRetry: Boolean,
+    onRetry: () -> Unit
+) {
     val brand = brandFor(task.platform)
     val statusColor = when (task.status) {
         DownloadStatus.COMPLETE -> Success
@@ -684,6 +754,16 @@ private fun TaskCard(task: DownloadTask) {
                 trackColor = WhiteSoft.copy(alpha = 0.07f)
             )
             Text(task.message, color = Muted, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+
+            if (canRetry) {
+                OutlinedButton(
+                    onClick = onRetry,
+                    modifier = Modifier.fillMaxWidth(),
+                    border = BorderStroke(1.dp, Warning.copy(alpha = 0.55f))
+                ) {
+                    Text("↻  RETRY THIS ITEM", color = Warning, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }
