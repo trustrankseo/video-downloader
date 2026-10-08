@@ -20,6 +20,10 @@ Information is used to provide supported Single, Bulk and Channel/Playlist/Profi
 
 Universal Downloader v1.6.3 contains **no advertising SDK** and does not show banner or interstitial ads.
 
+## Paid and DRM-protected media
+
+Universal Downloader intentionally blocks known paid, subscription, rental, purchase and DRM-protected media services. The app does not provide an authenticated-session or cookie bypass for protected content.
+
 ## URLs, downloads and third-party services
 
 URLs entered by the user are processed only to perform the requested download or discovery operation and may be sent to the relevant third-party media service. Downloaded files are stored locally on the user's device. Third-party services operate independently under their own terms and privacy practices.
@@ -76,6 +80,10 @@ Universal Downloader 是独立工具，与任何第三方社交媒体或媒体�
 ## 广告
 
 Universal Downloader v1.6.3 **不包含任何广告 SDK**，也不显示横幅广告或插页式广告。
+
+## 付费及 DRM 受保护媒体
+
+Universal Downloader 会主动阻止已知的付费、订阅、租赁、购买及 DRM 受保护媒体服务。本应用不提供用于绕过受保护内容的登录会话或 Cookie 绕过功能。
 
 ## 用户链接、下载文件及第三方服务
 
