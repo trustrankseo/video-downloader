@@ -43,8 +43,8 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun downloadSingle(url: String, format: FormatPreset) {
-        val clean = url.trim()
-        if (clean.isBlank() || state.value.running) return
+        val clean = InputUrlPolicy.normalize(url)
+        if (!InputUrlPolicy.isValidWebUrl(clean) || state.value.running) return
         abortRequested = false
         val task = DownloadTask(id = UUID.randomUUID().toString(), url = clean)
         state.value = UiState(running = true, statusLine = "Starting…", tasks = listOf(task))
@@ -63,8 +63,8 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
     fun downloadBulk(raw: String, format: FormatPreset) {
         if (state.value.running) return
         val urls = raw.lineSequence()
-            .map { it.trim() }
-            .filter { it.startsWith("http://") || it.startsWith("https://") }
+            .map { InputUrlPolicy.normalize(it) }
+            .filter { InputUrlPolicy.isValidWebUrl(it) }
             .distinct()
             .toList()
         if (urls.isEmpty()) return
@@ -89,8 +89,8 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun downloadCollection(collectionUrl: String, format: FormatPreset) {
-        val clean = collectionUrl.trim()
-        if (clean.isBlank() || state.value.running) return
+        val clean = InputUrlPolicy.normalize(collectionUrl)
+        if (!InputUrlPolicy.isValidWebUrl(clean) || state.value.running) return
         abortRequested = false
         state.value = UiState(running = true, statusLine = "Discovering collection…")
         viewModelScope.launch {
@@ -173,15 +173,20 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         updateTask(task.id, DownloadStatus.DOWNLOADING, 0f, "Starting")
-        val result = engine.download(task.url, format) { progress, eta ->
-            if (!abortRequested) {
-                updateTask(
-                    task.id,
-                    DownloadStatus.DOWNLOADING,
-                    (progress / 100f).coerceIn(0f, 1f),
-                    "${progress.toInt()}% • ETA ${eta}s"
-                )
+        DownloadKeepAliveService.start(getApplication())
+        val result = try {
+            engine.download(task.url, format) { progress, eta ->
+                if (!abortRequested) {
+                    updateTask(
+                        task.id,
+                        DownloadStatus.DOWNLOADING,
+                        (progress / 100f).coerceIn(0f, 1f),
+                        "${progress.toInt()}% • ETA ${eta}s"
+                    )
+                }
             }
+        } finally {
+            DownloadKeepAliveService.stop(getApplication())
         }
 
         if (abortRequested) {
