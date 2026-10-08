@@ -103,7 +103,6 @@ object AdsManager : MaxAdListener {
             if (interstitial == null) {
                 interstitial = MaxInterstitialAd(BuildConfig.APPLOVIN_INTERSTITIAL_AD_UNIT_ID).also {
                     it.setListener(this)
-                    it.setPlacement("download_complete")
                 }
             }
             interstitial?.loadAd()
