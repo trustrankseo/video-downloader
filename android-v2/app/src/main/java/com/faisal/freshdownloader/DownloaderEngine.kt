@@ -9,11 +9,16 @@ import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Native-only download engine.
@@ -35,9 +40,9 @@ class DownloaderEngine(private val context: Context) {
         }
     }
 
-    @Volatile private var activeProcessId: String? = null
-    @Volatile private var activeConnection: HttpURLConnection? = null
-    @Volatile private var cancelRequested = false
+    private val activeProcessIds = ConcurrentHashMap.newKeySet<String>()
+    private val activeConnections = ConcurrentHashMap.newKeySet<HttpURLConnection>()
+    private val cancelRequested = AtomicBoolean(false)
 
     private val browserUserAgent =
         "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 " +
@@ -50,19 +55,29 @@ class DownloaderEngine(private val context: Context) {
             outputDir.absolutePath
         }
 
+    fun resetCancellation() {
+        cancelRequested.set(false)
+    }
+
     fun cancelActive(): Boolean {
-        cancelRequested = true
+        cancelRequested.set(true)
 
-        val processId = activeProcessId
-        val hadConnection = activeConnection != null
-        runCatching { activeConnection?.disconnect() }
-        activeConnection = null
+        val connections = activeConnections.toList()
+        connections.forEach { connection ->
+            runCatching { connection.disconnect() }
+            activeConnections.remove(connection)
+        }
 
-        val processStopped = if (processId != null) {
-            runCatching { YoutubeDL.getInstance().destroyProcessById(processId) }.getOrDefault(false)
-        } else false
+        val processIds = activeProcessIds.toList()
+        val stoppedAny = processIds.fold(false) { stopped, processId ->
+            val stoppedNow = runCatching {
+                YoutubeDL.getInstance().destroyProcessById(processId)
+            }.getOrDefault(false)
+            activeProcessIds.remove(processId)
+            stopped || stoppedNow
+        }
 
-        return processStopped || hadConnection
+        return stoppedAny || connections.isNotEmpty() || processIds.isNotEmpty()
     }
 
     suspend fun download(
@@ -70,18 +85,28 @@ class DownloaderEngine(private val context: Context) {
         format: FormatPreset,
         onProgress: (Float, Long) -> Unit
     ): Result<String> = withContext(Dispatchers.IO) {
-        cancelRequested = false
         runCatching {
+            ensureMediaEngineReady()
+            if (cancelRequested.get()) throw CancellationException("Cancelled")
+
             val normalized = normalizeInputUrl(url)
             require(InputUrlPolicy.isValidWebUrl(normalized)) {
                 "Please enter a valid public http/https URL."
+            }
+            require(!InputUrlPolicy.isLikelyCollectionUrl(normalized)) {
+                "This is a channel/profile/playlist URL. Use Channel mode."
             }
 
             val targetUrl = if (shouldResolveRedirect(normalized)) {
                 runCatching { resolveRedirectUrl(normalized) }.getOrDefault(normalized)
             } else normalized
 
-            if (cancelRequested) throw CancellationException("Cancelled")
+            if (cancelRequested.get()) throw CancellationException("Cancelled")
+
+            val processId = "dl-${UUID.randomUUID()}"
+            val jobDir = File(outputDir, ".jobs/$processId").apply {
+                check(isDirectory || mkdirs()) { "Unable to create download job workspace." }
+            }
 
             val request = YoutubeDLRequest(targetUrl)
             request.addOption("--no-playlist")
@@ -90,8 +115,11 @@ class DownloaderEngine(private val context: Context) {
             request.addOption("--restrict-filenames")
             request.addOption("--retries", "5")
             request.addOption("--fragment-retries", "5")
+            request.addOption("--extractor-retries", "3")
+            request.addOption("--socket-timeout", "20")
+            request.addOption("--concurrent-fragments", "4")
             request.addOption("--print", "after_move:filepath")
-            request.addOption("-o", File(outputDir, "%(title)s [%(id)s].%(ext)s").absolutePath)
+            request.addOption("-o", File(jobDir, "%(title)s [%(id)s].%(ext)s").absolutePath)
             applyPublicHeaders(request, targetUrl)
 
             when (format) {
@@ -106,38 +134,48 @@ class DownloaderEngine(private val context: Context) {
                 }
             }
 
-            val processId = "dl-${UUID.randomUUID()}"
-            val startedAt = System.currentTimeMillis()
-            activeProcessId = processId
+            activeProcessIds.add(processId)
             try {
                 val response = YoutubeDL.getInstance().execute(request, processId) { progress, eta, _ ->
-                    onProgress(progress, eta)
+                    if (!cancelRequested.get()) onProgress(progress, eta)
                 }
+
+                if (cancelRequested.get()) throw CancellationException("Cancelled")
+
                 val finalFile = response.out
                     .lineSequence()
                     .map { it.trim() }
                     .filter { it.isNotBlank() }
                     .map { File(it) }
                     .lastOrNull { it.isFile }
-                    ?: outputDir.listFiles()
-                        ?.asSequence()
-                        ?.filter { it.isFile && !it.name.endsWith(".part", ignoreCase = true) }
-                        ?.filter { it.lastModified() >= startedAt - 5_000L }
-                        ?.maxByOrNull { it.lastModified() }
+                    ?: jobDir.walkTopDown()
+                        .filter { it.isFile && !it.name.endsWith(".part", ignoreCase = true) }
+                        .maxByOrNull { it.lastModified() }
+                    ?: error(
+                        response.out
+                            .lineSequence()
+                            .filter { it.isNotBlank() }
+                            .takeLast(8)
+                            .joinToString(" ")
+                            .ifBlank { "Downloader finished without creating a media file." }
+                    )
 
-                when {
-                    finalFile == null -> response.out
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> publishToSharedDownloads(finalFile)
-                    else -> finalFile.absolutePath
+                val savedPath = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    publishToSharedDownloads(finalFile)
+                } else {
+                    moveLegacyResult(finalFile)
                 }
+                onProgress(100f, 0L)
+                savedPath
             } finally {
-                if (activeProcessId == processId) activeProcessId = null
+                activeProcessIds.remove(processId)
+                runCatching { jobDir.deleteRecursively() }
             }
         }
     }
 
     suspend fun discoverCollection(url: String): Result<List<String>> {
-        cancelRequested = false
+        ensureMediaEngineReady()
         val normalized = normalizeInputUrl(url)
         if (!InputUrlPolicy.isValidWebUrl(normalized)) {
             return Result.failure(IllegalArgumentException("Please enter a valid public collection URL."))
@@ -147,27 +185,31 @@ class DownloaderEngine(private val context: Context) {
             runCatching { resolveRedirectUrl(normalized) }.getOrDefault(normalized)
         } else normalized
 
-        if (cancelRequested) return cancelledResult()
+        if (cancelRequested.get()) return cancelledResult()
 
         val discoveryUrls = youtubeCollectionCandidates(targetUrl)
         val extractorAttempt = withContext(Dispatchers.IO) {
             runCatching {
-                val combined = linkedSetOf<String>()
-                var firstFailure: Throwable? = null
-                for (candidate in discoveryUrls) {
-                    if (cancelRequested) throw CancellationException("Cancelled")
-                    try {
-                        combined += discoverWithYtDlp(candidate)
-                    } catch (failure: Throwable) {
-                        if (firstFailure == null) firstFailure = failure
+                coroutineScope {
+                    val attempts = discoveryUrls.map { candidate ->
+                        async {
+                            if (cancelRequested.get()) throw CancellationException("Cancelled")
+                            runCatching { discoverWithYtDlp(candidate) }
+                        }
+                    }.awaitAll()
+
+                    val combined = linkedSetOf<String>()
+                    attempts.forEach { attempt ->
+                        attempt.getOrNull()?.let { combined += it }
                     }
-                    if (combined.size >= 500) break
+                    if (combined.isEmpty()) {
+                        attempts.firstNotNullOfOrNull { it.exceptionOrNull() }?.let { throw it }
+                    }
+                    combined.take(500)
                 }
-                if (combined.isEmpty() && firstFailure != null) throw firstFailure
-                combined.take(500)
             }
         }
-        if (cancelRequested) return cancelledResult()
+        if (cancelRequested.get()) return cancelledResult()
 
         val extracted = extractorAttempt.getOrDefault(emptyList())
         if (extracted.isNotEmpty()) return Result.success(extracted)
@@ -176,7 +218,7 @@ class DownloaderEngine(private val context: Context) {
             val httpFallback = withContext(Dispatchers.IO) {
                 runCatching { discoverFacebookPublicProfile(targetUrl) }.getOrDefault(emptyList())
             }
-            if (cancelRequested) return cancelledResult()
+            if (cancelRequested.get()) return cancelledResult()
             if (httpFallback.isNotEmpty()) return Result.success(httpFallback)
 
             return Result.failure(
@@ -232,7 +274,7 @@ class DownloaderEngine(private val context: Context) {
         Result.failure(CancellationException("Cancelled"))
 
     private fun discoverWithYtDlp(url: String): List<String> {
-        if (cancelRequested) throw CancellationException("Cancelled")
+        if (cancelRequested.get()) throw CancellationException("Cancelled")
 
         val request = YoutubeDLRequest(url)
         request.addOption("--flat-playlist")
@@ -242,7 +284,7 @@ class DownloaderEngine(private val context: Context) {
         applyPublicHeaders(request, url)
 
         val processId = "discover-${UUID.randomUUID()}"
-        activeProcessId = processId
+        activeProcessIds.add(processId)
         return try {
             val response = YoutubeDL.getInstance().execute(request, processId)
             val youtube = isYouTubeUrl(url)
@@ -261,7 +303,7 @@ class DownloaderEngine(private val context: Context) {
                 .take(500)
                 .toList()
         } finally {
-            if (activeProcessId == processId) activeProcessId = null
+            activeProcessIds.remove(processId)
         }
     }
 
@@ -295,7 +337,7 @@ class DownloaderEngine(private val context: Context) {
 
         val found = linkedSetOf<String>()
         for (candidate in candidates) {
-            if (cancelRequested) break
+            if (cancelRequested.get()) break
             val html = runCatching { fetchPublicHtml(candidate) }.getOrNull() ?: continue
             found += extractFacebookVideoUrls(html)
             if (found.size >= 300) break
@@ -347,7 +389,7 @@ class DownloaderEngine(private val context: Context) {
     private fun resolveRedirectUrl(input: String): String {
         var current = normalizeInputUrl(input)
         repeat(6) {
-            if (cancelRequested) throw CancellationException("Cancelled")
+            if (cancelRequested.get()) throw CancellationException("Cancelled")
             val connection = (URL(current).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = false
                 connectTimeout = 10_000
@@ -356,7 +398,7 @@ class DownloaderEngine(private val context: Context) {
                 setRequestProperty("User-Agent", browserUserAgent)
                 setRequestProperty("Accept-Language", "en-US,en;q=0.9")
             }
-            activeConnection = connection
+            activeConnections.add(connection)
             try {
                 val code = connection.responseCode
                 if (code in 300..399) {
@@ -374,7 +416,7 @@ class DownloaderEngine(private val context: Context) {
                 }
             } finally {
                 connection.disconnect()
-                if (activeConnection === connection) activeConnection = null
+                activeConnections.remove(connection)
             }
         }
         return current
@@ -396,7 +438,7 @@ class DownloaderEngine(private val context: Context) {
     }
 
     private fun fetchPublicHtml(url: String): String {
-        if (cancelRequested) throw CancellationException("Cancelled")
+        if (cancelRequested.get()) throw CancellationException("Cancelled")
         val connection = (URL(normalizeInputUrl(url)).openConnection() as HttpURLConnection).apply {
             instanceFollowRedirects = true
             connectTimeout = 12_000
@@ -405,7 +447,7 @@ class DownloaderEngine(private val context: Context) {
             setRequestProperty("User-Agent", browserUserAgent)
             setRequestProperty("Accept-Language", "en-US,en;q=0.9")
         }
-        activeConnection = connection
+        activeConnections.add(connection)
         return try {
             val code = connection.responseCode
             if (code !in 200..299) return ""
@@ -415,7 +457,7 @@ class DownloaderEngine(private val context: Context) {
             }
         } finally {
             connection.disconnect()
-            if (activeConnection === connection) activeConnection = null
+            activeConnections.remove(connection)
         }
     }
 
@@ -509,6 +551,32 @@ class DownloaderEngine(private val context: Context) {
         .orEmpty()
         .take(160)
 
+    private fun ensureMediaEngineReady() {
+        val app = context.applicationContext as? DownloaderApp
+        if (app != null) {
+            app.initializeMediaEngine().getOrThrow()
+        } else {
+            YoutubeDL.getInstance().init(context.applicationContext)
+        }
+    }
+
+    private fun moveLegacyResult(file: File): String {
+        val preferred = File(outputDir, file.name)
+        val destination = if (!preferred.exists()) {
+            preferred
+        } else {
+            val suffix = System.currentTimeMillis()
+            val extension = file.extension.takeIf { it.isNotBlank() }?.let { ".$it" }.orEmpty()
+            File(outputDir, "${file.nameWithoutExtension}-$suffix$extension")
+        }
+
+        if (!file.renameTo(destination)) {
+            file.copyTo(destination, overwrite = false)
+            file.delete()
+        }
+        return destination.absolutePath
+    }
+
     private fun publishToSharedDownloads(file: File): String {
         val resolver = context.contentResolver
         val relativePath = "${Environment.DIRECTORY_DOWNLOADS}/UniversalDownloader"
@@ -550,8 +618,9 @@ class DownloaderEngine(private val context: Context) {
     }
 
     suspend fun updateEngineStable(): Result<String> = withContext(Dispatchers.IO) {
-        cancelRequested = false
+        resetCancellation()
         runCatching {
+            ensureMediaEngineReady()
             YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.STABLE)
             "Downloader engine updated"
         }
