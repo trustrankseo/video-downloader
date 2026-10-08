@@ -2,6 +2,7 @@ package com.faisal.freshdownloader
 
 import android.app.Activity
 import android.content.Context
+import androidx.compose.runtime.mutableStateOf
 import com.applovin.mediation.MaxAd
 import com.applovin.mediation.MaxAdListener
 import com.applovin.mediation.MaxError
@@ -20,6 +21,8 @@ object AdsManager : MaxAdListener {
 
     @Volatile
     private var initialized = false
+
+    val initializedState = mutableStateOf(false)
 
     @Volatile
     private var initializing = false
@@ -53,10 +56,13 @@ object AdsManager : MaxAdListener {
 
             AppLovinSdk.getInstance(applicationContext).initialize(initConfig) {
                 initialized = true
+                initializedState.value = true
                 initializing = false
                 preloadInterstitial()
             }
         }.onFailure {
+            initialized = false
+            initializedState.value = false
             initializing = false
         }
     }
