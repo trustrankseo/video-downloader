@@ -24,7 +24,7 @@ private const val PRIVACY_URL_EN = "https://trustrankseo.github.io/video-downloa
 private const val PRIVACY_URL_ZH_CN = "https://trustrankseo.github.io/video-downloader/privacy-zh-cn.html"
 private const val PRIVACY_PREFS = "universal_downloader_privacy"
 private const val PRIVACY_ACCEPTED_VERSION = "accepted_policy_version"
-private const val CURRENT_POLICY_VERSION = 4
+private const val CURRENT_POLICY_VERSION = 5
 
 private data class PolicySection(val title: String, val body: String)
 
@@ -35,11 +35,11 @@ private val EN_POLICY = listOf(
     ),
     PolicySection(
         "Information the app may process",
-        "The app may process an app-generated installation ID; referral source, code and status information; Android version, app version, device model and basic diagnostics; URLs you enter for download operations; advertising identifiers and device/app signals made available by Android where permitted; and support information you choose to include in a problem report. It does not request your precise location, contacts, SMS, call history, IMEI or device serial number."
+        "The app may process an app-generated installation ID; referral source, code and status information; Android version, app version, device model and basic diagnostics; URLs you enter for download operations; and support information you choose to include in a problem report. It does not request your advertising ID, precise location, contacts, SMS, call history, IMEI or device serial number."
     ),
     PolicySection(
         "Purposes of processing",
-        "Information is used to provide Single, Bulk, Channel/Playlist/Profile, MP4 and MP3 functions where supported; manage referrals; save preferences; deliver and measure advertising; apply ad frequency limits; prevent fraud and abuse; diagnose failures; and respond to reports you choose to send."
+        "Information is used to provide Single, Bulk, Channel/Playlist/Profile, MP4 and MP3 functions where supported; manage referrals; save preferences; prevent fraud and abuse; diagnose failures; and respond to reports you choose to send."
     ),
     PolicySection(
         "User URLs, downloads and third-party services",
@@ -50,16 +50,12 @@ private val EN_POLICY = listOf(
         "Universal Downloader is an independent utility and is not affiliated with, endorsed by, sponsored by, or associated with any third-party social media or media platform."
     ),
     PolicySection(
-        "Advertising",
-        "After you accept this policy, Universal Downloader may initialize AppLovin MAX to display banner and interstitial ads. AppLovin and its advertising partners may process advertising identifiers and device/app signals where available for ad delivery, measurement, fraud prevention and frequency control. You can use applicable Android privacy and advertising controls to limit or reset advertising identifiers."
-    ),
-    PolicySection(
         "Sharing and service providers",
-        "Universal Downloader does not sell personal data. Information may be processed or shared only as necessary with advertising partners such as AppLovin, app-store, media-source or technical service providers to deliver ads, perform a requested function, provide support, comply with law or prevent abuse."
+        "Universal Downloader does not sell personal data. Information may be processed or shared only as necessary with app-store, media-source or technical service providers to perform a requested function, provide support, comply with law or prevent abuse."
     ),
     PolicySection(
         "Retention and deletion",
-        "Local settings, identifiers and referral state remain on your device until you clear app data or uninstall the app. Downloaded files remain until you delete them. Advertising providers may retain advertising and measurement data under their own policies. Voluntary support information is retained only as reasonably necessary to investigate the request or meet legal obligations."
+        "Local settings, identifiers and referral state remain on your device until you clear app data or uninstall the app. Downloaded files remain until you delete them. Voluntary support information is retained only as reasonably necessary to investigate the request or meet legal obligations."
     ),
     PolicySection(
         "Problem reports and support",
@@ -94,11 +90,11 @@ private val ZH_POLICY = listOf(
     ),
     PolicySection(
         "本应用可能处理的信息",
-        "本应用可能处理：由应用生成的安装标识符；推荐来源、推荐码和推荐状态；Android 版本、应用版本、设备型号及基础诊断信息；您为下载操作输入的链接；在法律和系统允许的情况下由 Android 提供的广告标识符及设备/应用信号；以及您主动在问题报告中提供的支持信息。本应用不会要求精确位置、联系人、短信、通话记录、IMEI 或设备序列号。"
+        "本应用可能处理：由应用生成的安装标识符；推荐来源、推荐码和推荐状态；Android 版本、应用版本、设备型号及基础诊断信息；您为下载操作输入的链接；以及您主动在问题报告中提供的支持信息。本应用不会请求广告标识符、精确位置、联系人、短信、通话记录、IMEI 或设备序列号。"
     ),
     PolicySection(
         "处理目的",
-        "相关信息仅用于在支持的情况下提供单个下载、批量下载、频道/播放列表/主页、MP4 和 MP3 功能；管理推荐；保存偏好；投放和衡量广告；控制广告展示频率；防止欺诈和滥用；诊断故障；以及响应您主动发送的问题报告。"
+        "相关信息仅用于在支持的情况下提供单个下载、批量下载、频道/播放列表/主页、MP4 和 MP3 功能；管理推荐；保存偏好；防止欺诈和滥用；诊断故障；以及响应您主动发送的问题报告。"
     ),
     PolicySection(
         "用户链接、下载文件及第三方服务",
@@ -109,16 +105,12 @@ private val ZH_POLICY = listOf(
         "Universal Downloader 是独立工具，与任何第三方社交媒体或媒体平台均不存在关联、认可、赞助或合作关系。"
     ),
     PolicySection(
-        "广告",
-        "在您同意本隐私政策后，Universal Downloader 可能初始化 AppLovin MAX 以展示横幅广告和插屏广告。在适用且系统允许的情况下，AppLovin 及其广告合作伙伴可能处理广告标识符和设备/应用信号，用于广告投放、效果衡量、防欺诈及频次控制。您可以使用 Android 提供的隐私和广告设置来限制或重置广告标识符。"
-    ),
-    PolicySection(
         "共享及服务提供方",
-        "Universal Downloader 不出售个人信息。仅在广告投放、执行用户请求的功能、提供支持、遵守法律或防止滥用所必需的情况下，相关信息才可能由 AppLovin 等广告合作伙伴、应用商店、媒体来源或技术服务提供方处理或共享。"
+        "Universal Downloader 不出售个人信息。仅在执行用户请求的功能、提供支持、遵守法律或防止滥用所必需的情况下，相关信息才可能由应用商店、媒体来源或技术服务提供方处理或共享。"
     ),
     PolicySection(
         "保存期限及删除",
-        "本地设置、安装标识符和推荐状态保存在设备上，直至您清除应用数据或卸载应用。下载文件会保留至您主动删除。广告服务提供方可能依据其自身政策保存广告及衡量数据。您自愿发送的支持信息仅在调查请求或履行法律义务所合理需要的期限内保存。"
+        "本地设置、安装标识符和推荐状态保存在设备上，直至您清除应用数据或卸载应用。下载文件会保留至您主动删除。您自愿发送的支持信息仅在调查请求或履行法律义务所合理需要的期限内保存。"
     ),
     PolicySection(
         "问题报告及支持",
