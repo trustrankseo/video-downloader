@@ -21,7 +21,7 @@ fun AppLovinBanner(modifier: Modifier = Modifier) {
     if (!AdsManager.isConfigured || !initialized) return
 
     val adView = remember(context, initialized) {
-        AdsManager.createBanner(context)
+        AdsManager.createBanner()
     } ?: return
 
     DisposableEffect(adView) {
