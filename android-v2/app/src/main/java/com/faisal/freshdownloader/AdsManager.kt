@@ -67,10 +67,10 @@ object AdsManager : MaxAdListener {
         }
     }
 
-    fun createBanner(context: Context): MaxAdView? {
+    fun createBanner(): MaxAdView? {
         if (!initialized || !isConfigured) return null
         return runCatching {
-            MaxAdView(BuildConfig.APPLOVIN_BANNER_AD_UNIT_ID, context).apply {
+            MaxAdView(BuildConfig.APPLOVIN_BANNER_AD_UNIT_ID).apply {
                 setPlacement("downloader_bottom")
                 loadAd()
             }
