@@ -2,8 +2,6 @@ package com.faisal.freshdownloader
 
 import android.content.Context
 import android.net.Uri
-import com.android.installreferrer.api.InstallReferrerClient
-import com.android.installreferrer.api.InstallReferrerStateListener
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -20,8 +18,8 @@ class ReferralManager(context: Context) {
         private const val KEY_PENDING_CODE = "pending_referral_code"
         private const val KEY_REFERRAL_ACTIVATED = "referral_activated"
         private const val KEY_SHARES = "organic_share_count"
-        private const val KEY_REFERRER_FETCHED = "install_referrer_fetched"
         private const val ELIGIBILITY_WINDOW_MS = 7L * 24L * 60L * 60L * 1000L
+        private const val UPTODOWN_FALLBACK_TEXT = "Search for Universal Downloader on Uptodown"
     }
 
     data class Snapshot(
@@ -51,8 +49,13 @@ class ReferralManager(context: Context) {
             prefs.edit()
                 .putString(KEY_INSTALL_ID, UUID.randomUUID().toString())
                 .putLong(KEY_FIRST_INSTALL_MS, System.currentTimeMillis())
-                .putString(KEY_INSTALL_SOURCE, "direct_or_unknown")
+                .putString(KEY_INSTALL_SOURCE, "uptodown_or_direct")
                 .apply()
+        } else if (prefs.getString(KEY_INSTALL_SOURCE, "") == "google_play") {
+            // Older builds used the Play Install Referrer API even though the app
+            // is distributed through Uptodown. Do not keep showing Play Store as
+            // the source for existing installations.
+            prefs.edit().putString(KEY_INSTALL_SOURCE, "uptodown_or_direct").apply()
         }
     }
 
@@ -60,7 +63,7 @@ class ReferralManager(context: Context) {
         return Snapshot(
             installId = installId(),
             referralCode = referralCode(),
-            installSource = prefs.getString(KEY_INSTALL_SOURCE, "direct_or_unknown").orEmpty(),
+            installSource = prefs.getString(KEY_INSTALL_SOURCE, "uptodown_or_direct").orEmpty(),
             firstInstallMs = prefs.getLong(KEY_FIRST_INSTALL_MS, System.currentTimeMillis()),
             eligibleForReferral = isInstallEligible(),
             pendingReferralCode = prefs.getString(KEY_PENDING_CODE, null),
@@ -113,9 +116,23 @@ class ReferralManager(context: Context) {
         prefs.edit().putInt(KEY_SHARES, prefs.getInt(KEY_SHARES, 0) + 1).apply()
     }
 
+    fun uptodownUrl(): String = BuildConfig.UPTODOWN_APP_URL.trim()
+
     fun shareText(): String {
         val code = referralCode()
-        return "Try Universal Downloader. Use my referral code $code after install. The referral activates after the first successful download. Find Universal Downloader on Uptodown."
+        val url = uptodownUrl()
+        val installLine = if (url.isNotBlank()) {
+            "Download Universal Downloader from Uptodown: $url"
+        } else {
+            "$UPTODOWN_FALLBACK_TEXT."
+        }
+
+        return buildString {
+            appendLine("Try Universal Downloader.")
+            appendLine(installLine)
+            appendLine("My referral code: $code")
+            append("After installing, open Refer & Share and enter the code. The referral activates after the first successful download.")
+        }
     }
 
     fun captureReferralUri(uri: Uri?) {
@@ -124,36 +141,13 @@ class ReferralManager(context: Context) {
         applyReferralCode(code, "deep_link")
     }
 
+    /**
+     * Uptodown does not use Google's Play Install Referrer service.
+     * Referral attribution is handled by the shared referral code/deep link instead.
+     */
     fun refreshInstallReferrer() {
-        if (prefs.getBoolean(KEY_REFERRER_FETCHED, false)) return
-        val client = InstallReferrerClient.newBuilder(appContext).build()
-        runCatching {
-            client.startConnection(object : InstallReferrerStateListener {
-                override fun onInstallReferrerSetupFinished(responseCode: Int) {
-                    try {
-                        if (responseCode == InstallReferrerClient.InstallReferrerResponse.OK) {
-                            val raw = client.installReferrer.installReferrer.orEmpty()
-                            if (raw.isNotBlank()) {
-                                val parsed = Uri.parse("https://referrer.local/?$raw")
-                                val source = parsed.getQueryParameter("utm_source") ?: "google_play"
-                                prefs.edit().putString(KEY_INSTALL_SOURCE, source).apply()
-                                val code = parsed.getQueryParameter("ref_code")
-                                    ?: parsed.getQueryParameter("referral_code")
-                                if (!code.isNullOrBlank()) applyReferralCode(code, source)
-                            } else {
-                                prefs.edit().putString(KEY_INSTALL_SOURCE, "google_play").apply()
-                            }
-                        }
-                    } catch (_: Throwable) {
-                        // Store/referrer service is optional; direct installs continue normally.
-                    } finally {
-                        prefs.edit().putBoolean(KEY_REFERRER_FETCHED, true).apply()
-                        runCatching { client.endConnection() }
-                    }
-                }
-
-                override fun onInstallReferrerServiceDisconnected() = Unit
-            })
+        if (prefs.getString(KEY_INSTALL_SOURCE, "").isNullOrBlank()) {
+            prefs.edit().putString(KEY_INSTALL_SOURCE, "uptodown_or_direct").apply()
         }
     }
 
