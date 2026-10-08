@@ -19,8 +19,8 @@ android {
         applicationId = "com.faisal.freshdownloader"
         minSdk = 24
         targetSdk = 35
-        versionCode = 42
-        versionName = "1.6.1"
+        versionCode = 43
+        versionName = "1.6.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Uptodown currently distributes this app as arm64-v8a. Shipping only the
