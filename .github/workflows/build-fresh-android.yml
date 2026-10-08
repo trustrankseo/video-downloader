@@ -129,10 +129,10 @@ jobs:
           set -euo pipefail
           APK="app/build/outputs/apk/uptodown/app-uptodown.apk"
           APK_SIZE="$(stat -c%s "$APK")"
-          MAX_SIZE="$((85 * 1024 * 1024))"
+          MAX_SIZE="$((60 * 1024 * 1024))"
 
           echo "APK bytes: $APK_SIZE"
-          echo "Size budget: $MAX_SIZE bytes (85 MiB)"
+          echo "Size budget: $MAX_SIZE bytes (60 MiB)"
           test "$APK_SIZE" -le "$MAX_SIZE"
 
           unzip -l "$APK" >/tmp/apk-files.txt
@@ -173,7 +173,7 @@ jobs:
             echo "- Uptodown certificate MD5 + SHA-256: passed"
             echo "- APK installability checks: passed"
             echo "- arm64-only architecture gate: passed"
-            echo "- APK size <= 85 MiB: passed"
+            echo "- APK size <= 60 MiB: passed"
             echo "- Artifact: ${{ steps.meta.outputs.artifact_name }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
