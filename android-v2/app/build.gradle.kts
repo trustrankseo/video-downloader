@@ -19,8 +19,15 @@ android {
         applicationId = "com.faisal.freshdownloader"
         minSdk = 24
         targetSdk = 35
-        versionCode = 40
-        versionName = "1.5.5"
+        versionCode = 41
+        versionName = "1.6.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Uptodown currently distributes this app as arm64-v8a. Shipping only the
+        // architecture users actually receive removes ~140 MB of duplicate native runtimes.
+        ndk {
+            abiFilters += setOf("arm64-v8a")
+        }
         buildConfigField("String", "UPTODOWN_APP_URL", buildConfigString(uptodownAppUrl))
         buildConfigField("String", "APPLOVIN_SDK_KEY", buildConfigString(appLovinSdkKey))
         buildConfigField("String", "APPLOVIN_BANNER_AD_UNIT_ID", buildConfigString(appLovinBannerAdUnitId))
@@ -64,20 +71,27 @@ android {
         }
         getByName("release") {
             isDebuggable = false
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             signingConfig = signingConfigs.getByName("huaweiRelease")
         }
         create("uptodownRelease") {
             initWith(getByName("release"))
             isDebuggable = false
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("uptodownUpdate")
             matchingFallbacks += listOf("release")
         }
         create("uptodown") {
             initWith(getByName("release"))
             isDebuggable = false
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("uptodownRelease")
         }
     }
@@ -123,7 +137,11 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("com.android.installreferrer:installreferrer:2.2")
