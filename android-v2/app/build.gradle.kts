@@ -10,6 +10,7 @@ val uptodownAppUrl = providers.environmentVariable("UPTODOWN_APP_URL").orElse(""
 val appLovinSdkKey = providers.environmentVariable("APPLOVIN_SDK_KEY").orElse("").get()
 val appLovinBannerAdUnitId = providers.environmentVariable("APPLOVIN_BANNER_AD_UNIT_ID").orElse("").get()
 val appLovinInterstitialAdUnitId = providers.environmentVariable("APPLOVIN_INTERSTITIAL_AD_UNIT_ID").orElse("").get()
+val targetAbi = providers.gradleProperty("targetAbi").orNull?.trim()?.takeIf { it.isNotEmpty() }
 
 android {
     namespace = "com.faisal.freshdownloader"
@@ -25,6 +26,12 @@ android {
         buildConfigField("String", "APPLOVIN_SDK_KEY", buildConfigString(appLovinSdkKey))
         buildConfigField("String", "APPLOVIN_BANNER_AD_UNIT_ID", buildConfigString(appLovinBannerAdUnitId))
         buildConfigField("String", "APPLOVIN_INTERSTITIAL_AD_UNIT_ID", buildConfigString(appLovinInterstitialAdUnitId))
+
+        if (targetAbi != null) {
+            ndk {
+                abiFilters += targetAbi
+            }
+        }
 
         vectorDrawables {
             useSupportLibrary = true
