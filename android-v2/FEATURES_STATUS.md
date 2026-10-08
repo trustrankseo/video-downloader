@@ -1,6 +1,6 @@
 # Universal Downloader — Feature Status & How It Works
 
-Current user-facing version: **v1.6.3**
+Current user-facing version: **v1.6.4**
 
 A successful Android build confirms that the app compiles and packages correctly. Third-party media downloading remains source/extractor dependent and can change outside the app.
 
@@ -16,7 +16,7 @@ A successful Android build confirms that the app compiles and packages correctly
 - Clear Finished
 - Progress and ETA where available
 
-Version 1.6.3 does **not** gate Bulk or Channel/Profile behind a subscription.
+Version 1.6.4 does **not** gate Bulk or Channel/Profile behind a subscription.
 
 ### ✅ Sidebar
 - Downloader
@@ -71,6 +71,8 @@ Direct public URLs can work where the relevant source exposes media to the extra
 
 Universal Downloader is an independent utility and is not affiliated with, endorsed by, sponsored by, or associated with any third-party social-media or media platform. Users should download only content they own or are authorized to save.
 
+Known paid, subscription, rental, purchase and DRM-protected media services are deliberately blocked. Direct public links remain supported where the source exposes media without protected authentication.
+
 ## How a normal download works
 
 1. User accepts the current Privacy Policy.
@@ -92,7 +94,7 @@ Universal Downloader is an independent utility and is not affiliated with, endor
 - Server-side entitlement systems if subscriptions are reintroduced later
 
 
-## v1.6.3 quality gates
+## v1.6.4 quality gates
 
 A release is considered publishable only when all of these pass:
 
