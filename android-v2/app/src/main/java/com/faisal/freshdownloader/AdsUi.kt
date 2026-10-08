@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -16,9 +17,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 fun AppLovinBanner(modifier: Modifier = Modifier) {
     val context = LocalContext.current
 
-    if (!AdsManager.isConfigured) return
+    val initialized by AdsManager.initializedState
+    if (!AdsManager.isConfigured || !initialized) return
 
-    val adView = remember(context) {
+    val adView = remember(context, initialized) {
         AdsManager.createBanner(context)
     } ?: return
 
