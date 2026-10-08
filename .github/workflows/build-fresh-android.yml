@@ -218,7 +218,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
-            set -euo pipefail
+            set -eu
             cd android-v2
 
             # Build and install the actual debug APK on the Android 15 emulator.
