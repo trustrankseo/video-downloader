@@ -100,6 +100,7 @@ object InputUrlPolicy {
         return path.startsWith("/gp/video") ||
             path.startsWith("/video/detail") ||
             path.contains("/primevideo") ||
+            path.contains("/prime-video") ||
             path.contains("/amazon-video")
     }
 
