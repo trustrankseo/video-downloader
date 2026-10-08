@@ -8,6 +8,9 @@ on:
       - "android-v2/**"
       - ".github/workflows/build-fresh-android.yml"
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -55,8 +58,23 @@ jobs:
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
           test -n "$APKSIGNER"
           "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+      - name: Prepare release APK
+        run: cp app/build/outputs/apk/release/app-release.apk UniversalDownloader-v1.5.0.apk
       - uses: actions/upload-artifact@v4
         with:
           name: UniversalDownloader-v1.5.0-Uptodown-AppLovin
-          path: android-v2/app/build/outputs/apk/release/app-release.apk
+          path: android-v2/UniversalDownloader-v1.5.0.apk
           if-no-files-found: error
+      - name: Publish GitHub Release v1.5.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: .
+        run: |
+          if gh release view v1.5.0 >/dev/null 2>&1; then
+            gh release upload v1.5.0 android-v2/UniversalDownloader-v1.5.0.apk --clobber
+          else
+            gh release create v1.5.0 android-v2/UniversalDownloader-v1.5.0.apk \
+              --target fresh-android-v2 \
+              --title "Universal Downloader v1.5.0" \
+              --notes "Uptodown release with AppLovin MAX banner and interstitial monetization, free Single/Bulk/Channel downloads, updated privacy consent, and stability fixes."
+          fi
