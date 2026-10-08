@@ -1,6 +1,6 @@
 # Universal Downloader — Feature Status & How It Works
 
-Current user-facing version: **v1.5.0**
+Current user-facing version: **v1.5.5**
 
 A successful Android build confirms that the app compiles and packages correctly. Third-party media downloading remains source/extractor dependent and can change outside the app.
 
@@ -16,7 +16,7 @@ A successful Android build confirms that the app compiles and packages correctly
 - Clear Finished
 - Progress and ETA where available
 
-Version 1.5.0 does **not** gate Bulk or Channel/Profile behind a subscription.
+Version 1.5.5 does **not** gate Bulk or Channel/Profile behind a subscription.
 
 ### ✅ Sidebar
 - Downloader
@@ -29,7 +29,7 @@ Version 1.5.0 does **not** gate Bulk or Channel/Profile behind a subscription.
 - Contact Us
 - Report a Problem
 
-The old Premium purchase page and Google Billing integration are removed from v1.5.0.
+The old Premium purchase page and Google Billing integration are removed from v1.5.5.
 
 ### ✅ Uptodown review feedback prompt
 - Triggered only after real usage: at least 3 successful downloads
@@ -40,7 +40,7 @@ The old Premium purchase page and Google Billing integration are removed from v1
 - No fake/incentivized review text is generated; users are asked for their own experience
 
 ### ✅ AppLovin MAX ads
-- AppLovin MAX SDK is integrated for v1.5.0.
+- AppLovin MAX SDK is integrated for v1.5.5.
 - A small banner is placed at the bottom of the Downloader screen.
 - Interstitial ads are requested only after a completed operation with at least one successful download.
 - Bulk and Channel/Profile operations trigger at most one interstitial after the whole operation, not one per item.
