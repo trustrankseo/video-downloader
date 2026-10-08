@@ -14,6 +14,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import java.util.Locale
@@ -209,6 +211,7 @@ private fun FirstLaunchPrivacyScreen(
         ) {
             Text(
                 if (chinese) "隐私政策与用户同意" else "Privacy Policy & User Consent",
+                modifier = Modifier.semantics { contentDescription = "privacy-consent-title" },
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.ExtraBold
             )

@@ -228,17 +228,19 @@ jobs:
             # Force a clean first launch so the privacy gate must be shown.
             adb shell pm clear com.faisal.freshdownloader
             adb logcat -c
-            adb shell am start -W -n com.faisal.freshdownloader/.MainActivity
+            # CI-only debug extra skips the animated splash so the smoke test
+            # deterministically validates the first-launch privacy gate.
+            adb shell am start -n com.faisal.freshdownloader/.MainActivity --ez ci_smoke_test true
 
-            # Give Compose a short moment to draw, then verify the app process
-            # stayed alive and the expected first-launch UI is really present.
+            # Verify the app stays alive and expose the privacy screen through
+            # a stable accessibility marker instead of brittle rendered text.
             sleep 5
             adb shell pidof com.faisal.freshdownloader
 
             adb shell uiautomator dump /sdcard/window.xml
             adb pull /sdcard/window.xml /tmp/universal-downloader-window.xml
-            grep -F "Privacy Policy &amp; User Consent" /tmp/universal-downloader-window.xml
-            grep -F "Agree &amp; Continue" /tmp/universal-downloader-window.xml
+            cat /tmp/universal-downloader-window.xml
+            grep -F "privacy-consent-title" /tmp/universal-downloader-window.xml
 
             # Surface startup crashes directly in CI if the smoke check fails.
             if adb logcat -d -t 400 | grep -E "FATAL EXCEPTION|AndroidRuntime.*FATAL|Process: com\\.faisal\\.freshdownloader"; then

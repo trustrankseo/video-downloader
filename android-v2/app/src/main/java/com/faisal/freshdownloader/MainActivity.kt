@@ -60,7 +60,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             UniversalAppTheme {
-                var showSplash by rememberSaveable { mutableStateOf(true) }
+                val skipSplashForCi = BuildConfig.DEBUG &&
+                    intent?.getBooleanExtra("ci_smoke_test", false) == true
+                var showSplash by rememberSaveable { mutableStateOf(!skipSplashForCi) }
                 if (showSplash) {
                     AnimatedSplash { showSplash = false }
                 } else {
