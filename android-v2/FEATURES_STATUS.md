@@ -40,7 +40,7 @@ The old Premium purchase page and Google Billing integration are removed from v1
 - No fake/incentivized review text is generated; users are asked for their own experience
 
 ### ✅ Ad-free distribution
-- No AppLovin MAX SDK.
+- No advertising SDK.
 - No banner or interstitial advertising.
 - No advertising-ID permission.
 - Download and referral behavior is independent of ad services.
