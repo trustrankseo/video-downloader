@@ -197,12 +197,6 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun consumeAdEvent(eventId: Long) {
-        if (eventId != 0L && state.value.adEventId == eventId) {
-            state.value = state.value.copy(adEventId = 0L)
-        }
-    }
-
     fun consumeReviewEvent(eventId: Long) {
         if (eventId != 0L && state.value.reviewEventId == eventId) {
             state.value = state.value.copy(reviewEventId = 0L)
@@ -271,8 +265,7 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
                     failedNow > 0 -> "$label finished • $failedNow failed • tap Retry"
                     else -> "$label finished"
                 },
-                reviewEventId = if (succeededNow && reviewManager.shouldPrompt()) System.nanoTime() else 0L,
-                adEventId = if (succeededNow) System.nanoTime() else 0L
+                reviewEventId = if (succeededNow && reviewManager.shouldPrompt()) System.nanoTime() else 0L
             )
         } finally {
             if (!serviceAlreadyRunning) DownloadKeepAliveService.stop(getApplication())
