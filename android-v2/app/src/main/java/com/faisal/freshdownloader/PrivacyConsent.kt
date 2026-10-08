@@ -50,6 +50,10 @@ private val EN_POLICY = listOf(
         "Universal Downloader is an independent utility and is not affiliated with, endorsed by, sponsored by, or associated with any third-party social media or media platform."
     ),
     PolicySection(
+        "Paid and DRM-protected media",
+        "Universal Downloader intentionally blocks known paid, subscription, rental, purchase and DRM-protected media services. The app is designed for compatible public media that you own or are authorized to save and does not provide an authenticated-session or cookie bypass for protected content."
+    ),
+    PolicySection(
         "Sharing and service providers",
         "Universal Downloader does not sell personal data. Information may be processed or shared only as necessary with app-store, media-source or technical service providers to perform a requested function, provide support, comply with law or prevent abuse."
     ),
@@ -103,6 +107,10 @@ private val ZH_POLICY = listOf(
     PolicySection(
         "独立应用声明",
         "Universal Downloader 是独立工具，与任何第三方社交媒体或媒体平台均不存在关联、认可、赞助或合作关系。"
+    ),
+    PolicySection(
+        "付费及 DRM 受保护媒体",
+        "Universal Downloader 会主动阻止已知的付费、订阅、租赁、购买及 DRM 受保护媒体服务。本应用仅用于您拥有或已获授权保存的兼容公共媒体，不提供用于绕过受保护内容的登录会话或 Cookie 绕过功能。"
     ),
     PolicySection(
         "共享及服务提供方",
