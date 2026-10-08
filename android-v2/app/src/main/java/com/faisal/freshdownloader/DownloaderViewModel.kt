@@ -51,6 +51,22 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
         val clean = InputUrlPolicy.normalize(url)
         if (!InputUrlPolicy.isValidWebUrl(clean) || state.value.running) return
 
+        InputUrlPolicy.paidDrmBlockReason(clean)?.let { reason ->
+            val task = DownloadTask(
+                id = UUID.randomUUID().toString(),
+                url = clean,
+                format = format,
+                status = DownloadStatus.FAILED,
+                message = reason
+            )
+            state.value = UiState(
+                running = false,
+                statusLine = reason,
+                tasks = listOf(task)
+            )
+            return
+        }
+
         if (InputUrlPolicy.isLikelyCollectionUrl(clean)) {
             val task = DownloadTask(
                 id = UUID.randomUUID().toString(),
@@ -78,12 +94,23 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
 
     fun downloadBulk(raw: String, format: FormatPreset, threads: Int = 3) {
         if (state.value.running) return
-        val urls = raw.lineSequence()
+        val normalized = raw.lineSequence()
             .map { InputUrlPolicy.normalize(it) }
             .filter { InputUrlPolicy.isValidWebUrl(it) }
             .distinct()
             .toList()
-        if (urls.isEmpty()) return
+        val blockedCount = normalized.count { InputUrlPolicy.isBlockedPaidDrmUrl(it) }
+        val urls = normalized.filter { InputUrlPolicy.isAllowedDownloadUrl(it) }
+
+        if (urls.isEmpty()) {
+            if (blockedCount > 0) {
+                state.value = UiState(
+                    running = false,
+                    statusLine = "$blockedCount paid/subscription/DRM link(s) blocked by policy."
+                )
+            }
+            return
+        }
 
         abortRequested = false
         engine.resetCancellation()
@@ -93,7 +120,10 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
         val workers = threads.coerceIn(1, 8)
         state.value = UiState(
             running = true,
-            statusLine = "Bulk queue: ${tasks.size} items • $workers threads",
+            statusLine = buildString {
+                append("Bulk queue: ${tasks.size} items • $workers threads")
+                if (blockedCount > 0) append(" • $blockedCount paid/DRM blocked")
+            },
             tasks = tasks
         )
         viewModelScope.launch {
@@ -104,6 +134,11 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
     fun downloadCollection(collectionUrl: String, format: FormatPreset, threads: Int = 3) {
         val clean = InputUrlPolicy.normalize(collectionUrl)
         if (!InputUrlPolicy.isValidWebUrl(clean) || state.value.running) return
+
+        InputUrlPolicy.paidDrmBlockReason(clean)?.let { reason ->
+            state.value = UiState(running = false, statusLine = reason)
+            return
+        }
 
         abortRequested = false
         engine.resetCancellation()
@@ -331,6 +366,8 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
     private fun friendlyError(t: Throwable?): String {
         val msg = t?.message.orEmpty()
         return when {
+            msg.contains("PAID_DRM_BLOCKED", ignoreCase = true) ->
+                "Paid, subscription, rental, purchase, or DRM-protected media is intentionally blocked."
             msg.contains("channel/profile/playlist", ignoreCase = true) ->
                 "This is a channel/profile/playlist link. Use Channel mode."
             msg.contains("FACEBOOK_PUBLIC_PROFILE_UNAVAILABLE", ignoreCase = true) ->
