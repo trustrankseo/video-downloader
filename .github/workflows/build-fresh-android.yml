@@ -3,7 +3,7 @@ name: Universal Downloader Auto Green Release
 on:
   workflow_dispatch:
   push:
-    branches: [fresh-android-v2]
+    branches: [fresh-android-v2, audit-hardening-v1.6.0]
     paths:
       - "android-v2/**"
       - ".github/workflows/build-fresh-android.yml"
@@ -34,16 +34,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "8.9"
 
@@ -79,18 +79,25 @@ jobs:
           set -euo pipefail
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
           APK="app/build/outputs/apk/uptodown/app-uptodown.apk"
-          EXPECTED="146b8de20d69a75cecef7b949e2280a6779ae2590e4ed2af0c3f733a774af1ed"
+          EXPECTED_SHA256="146b8de20d69a75cecef7b949e2280a6779ae2590e4ed2af0c3f733a774af1ed"
+          EXPECTED_MD5="471d573bfd94138a052087a80679b4f4"
 
           test -n "$APKSIGNER"
           test -f "$APK"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
 
-          ACTUAL="$("$APKSIGNER" verify --print-certs "$APK"             | sed -n 's/^.*certificate SHA-256 digest: //p'             | head -n 1             | tr '[:upper:]' '[:lower:]'             | tr -d ':')"
+          CERTS="$("$APKSIGNER" verify --print-certs "$APK")"
+          ACTUAL_SHA256="$(printf '%s\n' "$CERTS" | sed -n 's/^.*certificate SHA-256 digest: //p' | head -n 1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          ACTUAL_MD5="$(printf '%s\n' "$CERTS" | sed -n 's/^.*certificate MD5 digest: //p' | head -n 1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
 
-          echo "Expected signer SHA-256: $EXPECTED"
-          echo "Actual signer SHA-256:   $ACTUAL"
-          test -n "$ACTUAL"
-          test "$ACTUAL" = "$EXPECTED"
+          echo "Expected signer SHA-256: $EXPECTED_SHA256"
+          echo "Actual signer SHA-256:   $ACTUAL_SHA256"
+          echo "Expected Uptodown MD5:   $EXPECTED_MD5"
+          echo "Actual signer MD5:       $ACTUAL_MD5"
+          test -n "$ACTUAL_SHA256"
+          test -n "$ACTUAL_MD5"
+          test "$ACTUAL_SHA256" = "$EXPECTED_SHA256"
+          test "$ACTUAL_MD5" = "$EXPECTED_MD5"
 
       - name: Validate APK installability
         shell: bash
@@ -116,6 +123,29 @@ jobs:
           sha256sum "$APK"
           ls -lh "$APK"
 
+      - name: Enforce architecture and APK size budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/uptodown/app-uptodown.apk"
+          APK_SIZE="$(stat -c%s "$APK")"
+          MAX_SIZE="$((85 * 1024 * 1024))"
+
+          echo "APK bytes: $APK_SIZE"
+          echo "Size budget: $MAX_SIZE bytes (85 MiB)"
+          test "$APK_SIZE" -le "$MAX_SIZE"
+
+          unzip -l "$APK" >/tmp/apk-files.txt
+          grep -q "lib/arm64-v8a/" /tmp/apk-files.txt
+          if grep -Eq "lib/(armeabi-v7a|x86|x86_64)/" /tmp/apk-files.txt; then
+            echo "Unexpected non-arm64 native libraries found."
+            grep -E "lib/(armeabi-v7a|x86|x86_64)/" /tmp/apk-files.txt | head -n 30
+            exit 1
+          fi
+
+          echo "Architecture gate passed: arm64-v8a only."
+          echo "APK size gate passed."
+
       - name: Prepare release APK
         shell: bash
         run: |
@@ -124,7 +154,7 @@ jobs:
           test -s "UniversalDownloader-v${VERSION}.apk"
 
       - name: Upload verified APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.meta.outputs.artifact_name }}
           path: android-v2/UniversalDownloader-v${{ steps.meta.outputs.version }}.apk
@@ -140,26 +170,70 @@ jobs:
             echo "- Version: v${{ steps.meta.outputs.version }}"
             echo "- Unit tests: passed"
             echo "- APK build: passed"
-            echo "- Signer verification: passed"
+            echo "- Uptodown certificate MD5 + SHA-256: passed"
             echo "- APK installability checks: passed"
+            echo "- arm64-only architecture gate: passed"
+            echo "- APK size <= 85 MiB: passed"
             echo "- Artifact: ${{ steps.meta.outputs.artifact_name }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  device-smoke:
+    name: Android Emulator Smoke Test
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: android-v2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "8.9"
+
+      - name: Prepare debug signing key and x86_64 test ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p signing
+          base64 -d signing/universal-test.jks.b64 > signing/universal-test.jks
+          sed -i 's/abiFilters += setOf("arm64-v8a")/abiFilters += setOf("x86_64")/' app/build.gradle.kts
+          grep -n "abiFilters" app/build.gradle.kts
+
+      - name: Run instrumented launch/privacy smoke test
+        uses: ReactiveCircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: cd android-v2 && gradle :app:connectedDebugAndroidTest --stacktrace --no-daemon
+
   release:
     name: Publish Only After Green
-    needs: verify
-    if: ${{ needs.verify.result == 'success' }}
+    needs: [verify, device-smoke]
+    if: ${{ github.ref == 'refs/heads/fresh-android-v2' && needs.verify.result == 'success' && needs.device-smoke.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
       - name: Checkout release repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: fresh-android-v2
 
       - name: Download verified artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ${{ needs.verify.outputs.artifact_name }}
           path: release-apk
