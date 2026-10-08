@@ -397,21 +397,7 @@ class DownloaderEngine(private val context: Context) {
             "tiktok.com/t/" in lower
     }
 
-    private fun normalizeInputUrl(raw: String): String {
-        val value = raw.trim()
-        return when {
-            value.startsWith("https://", true) || value.startsWith("http://", true) -> value
-            value.startsWith("://") -> "https$value"
-            value.startsWith("//") -> "https:$value"
-            value.startsWith("www.") ||
-                value.startsWith("facebook.com", true) ||
-                value.startsWith("instagram.com", true) ||
-                value.startsWith("tiktok.com", true) ||
-                value.startsWith("vm.tiktok.com", true) ||
-                value.startsWith("vt.tiktok.com", true) -> "https://$value"
-            else -> value
-        }
-    }
+    private fun normalizeInputUrl(raw: String): String = InputSanitizer.normalizeUrl(raw)
 
     private fun isYouTubeUrl(url: String): Boolean {
         val lower = normalizeInputUrl(url).lowercase()
