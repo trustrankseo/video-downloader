@@ -19,8 +19,8 @@ android {
         applicationId = "com.faisal.freshdownloader"
         minSdk = 24
         targetSdk = 35
-        versionCode = 35
-        versionName = "1.5.0"
+        versionCode = 40
+        versionName = "1.5.5"
         buildConfigField("String", "UPTODOWN_APP_URL", buildConfigString(uptodownAppUrl))
         buildConfigField("String", "APPLOVIN_SDK_KEY", buildConfigString(appLovinSdkKey))
         buildConfigField("String", "APPLOVIN_BANNER_AD_UNIT_ID", buildConfigString(appLovinBannerAdUnitId))
