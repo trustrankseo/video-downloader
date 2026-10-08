@@ -135,6 +135,10 @@ class DownloaderEngine(private val context: Context) {
             }
 
             activeProcessIds.add(processId)
+            if (cancelRequested.get()) {
+                activeProcessIds.remove(processId)
+                throw CancellationException("Cancelled")
+            }
             try {
                 val response = YoutubeDL.getInstance().execute(request, processId) { progress, eta, _ ->
                     if (!cancelRequested.get()) onProgress(progress, eta)
@@ -155,6 +159,7 @@ class DownloaderEngine(private val context: Context) {
                         response.out
                             .lineSequence()
                             .filter { it.isNotBlank() }
+                            .toList()
                             .takeLast(8)
                             .joinToString(" ")
                             .ifBlank { "Downloader finished without creating a media file." }
@@ -175,7 +180,7 @@ class DownloaderEngine(private val context: Context) {
     }
 
     suspend fun discoverCollection(url: String): Result<List<String>> {
-        ensureMediaEngineReady()
+        withContext(Dispatchers.IO) { ensureMediaEngineReady() }
         val normalized = normalizeInputUrl(url)
         if (!InputUrlPolicy.isValidWebUrl(normalized)) {
             return Result.failure(IllegalArgumentException("Please enter a valid public collection URL."))
@@ -285,6 +290,10 @@ class DownloaderEngine(private val context: Context) {
 
         val processId = "discover-${UUID.randomUUID()}"
         activeProcessIds.add(processId)
+        if (cancelRequested.get()) {
+            activeProcessIds.remove(processId)
+            throw CancellationException("Cancelled")
+        }
         return try {
             val response = YoutubeDL.getInstance().execute(request, processId)
             val youtube = isYouTubeUrl(url)
