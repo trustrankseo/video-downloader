@@ -9,6 +9,7 @@ data class DownloadTask(
     val url: String,
     val title: String = url,
     val platform: String = detectPlatform(url),
+    val format: FormatPreset = FormatPreset.VIDEO_MP4,
     val status: DownloadStatus = DownloadStatus.QUEUED,
     val progress: Float = 0f,
     val message: String = "Queued"
