@@ -59,7 +59,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            PremiumTheme {
+            UniversalAppTheme {
                 var showSplash by rememberSaveable { mutableStateOf(true) }
                 if (showSplash) {
                     AnimatedSplash { showSplash = false }
@@ -78,7 +78,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun PremiumTheme(content: @Composable () -> Unit) {
+private fun UniversalAppTheme(content: @Composable () -> Unit) {
     UniversalDownloaderTheme(content)
 }
 
