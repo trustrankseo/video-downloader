@@ -384,7 +384,7 @@ private fun ReportProblemPage() {
     var category by rememberSaveable { mutableStateOf("Download issue") }
     var subject by rememberSaveable { mutableStateOf("") }
     var details by rememberSaveable { mutableStateOf("") }
-    val categories = listOf("Download issue", "Bulk/Channel issue", "Ads issue", "Referral issue", "App crash", "Other")
+    val categories = listOf("Download issue", "Bulk/Channel issue", "App review issue", "Referral issue", "App crash", "Other")
 
     SimplePage {
         Text("Report a Problem", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
