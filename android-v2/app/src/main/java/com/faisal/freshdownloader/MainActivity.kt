@@ -676,7 +676,7 @@ private fun TaskCard(task: DownloadTask) {
             }
 
             LinearProgressIndicator(
-                progress = task.progress,
+                progress = { task.progress },
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(99.dp)),
                 color = statusColor,
                 trackColor = WhiteSoft.copy(alpha = 0.07f)
