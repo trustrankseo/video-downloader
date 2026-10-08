@@ -2,7 +2,7 @@
 
 Native Kotlin + Jetpack Compose implementation of Universal Downloader.
 
-Current user-facing version: **v1.6.3**
+Current user-facing version: **v1.6.4**
 
 ## Main app areas
 
@@ -21,20 +21,22 @@ Current user-facing version: **v1.6.3**
 - Contact Us
 - Report a Problem
 
-Version 1.6.3 is a free Uptodown-focused build. Google Play subscription/Premium purchase UI and billing are removed. Single, Bulk and Channel/Profile modes are not subscription-gated.
+Version 1.6.4 is a free Uptodown-focused build. Google Play subscription/Premium purchase UI and billing are removed. Single, Bulk and Channel/Profile modes are not subscription-gated.
 
-Version 1.6.3 contains **no advertising SDK, no banner/interstitial ads, and no advertising-ID permission**.
+Version 1.6.4 contains **no advertising SDK, no banner/interstitial ads, and no advertising-ID permission**.
 
 The app can politely ask active users for an Uptodown rating/review after at least 3 successful downloads. Users can choose Rate on Uptodown, Maybe Later (7-day snooze), or Don't Ask Again. The prompt only activates when the exact Uptodown listing URL is configured for the build.
 
 The app uses a local yt-dlp/FFmpeg based engine, public/guest access first, no paid YouTube Data API, and does not store social-platform passwords.
+
+Known paid, subscription, rental, purchase and DRM-protected media services are hard-blocked before extraction and checked again after redirects. This policy layer does not alter the Single, Bulk or Channel downloader core for compatible public links.
 
 ## Important platform note
 
 The Android app and queue/UI features can be confirmed independently, but public-media downloading is source/extractor dependent. No third-party source is advertised as guaranteed or presented as affiliated with Universal Downloader.
 
 
-## v1.6.3 hardening
+## v1.6.4 hardening
 
 - Uptodown update certificate is pinned in CI by both MD5 and SHA-256.
 - Release APK is restricted to arm64-v8a, matching the current Uptodown distribution architecture.
