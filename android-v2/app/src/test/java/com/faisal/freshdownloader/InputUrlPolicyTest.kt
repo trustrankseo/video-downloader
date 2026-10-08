@@ -43,6 +43,55 @@ class InputUrlPolicyTest {
         assertFalse(InputUrlPolicy.isValidWebUrl("http://"))
     }
 
+    @Test fun blocksKnownPaidDrmSubscriptionServices() {
+        val blocked = listOf(
+            "https://netflix.com/title/123",
+            "https://www.disneyplus.com/video/abc",
+            "https://primevideo.com/detail/xyz",
+            "https://tv.apple.com/movie/example",
+            "https://spotify.com/track/123",
+            "https://patreon.com/posts/paid-video"
+        )
+
+        blocked.forEach { url ->
+            assertTrue("Expected paid/DRM URL to be blocked: $url", InputUrlPolicy.isBlockedPaidDrmUrl(url))
+            assertFalse("Blocked URL must not be allowed: $url", InputUrlPolicy.isAllowedDownloadUrl(url))
+            assertTrue(InputUrlPolicy.paidDrmBlockReason(url)?.contains("DRM", ignoreCase = true) == true)
+        }
+    }
+
+    @Test fun blocksPaidPathsWithoutBlockingWholeGeneralDomains() {
+        assertTrue(InputUrlPolicy.isBlockedPaidDrmUrl("https://amazon.com/gp/video/detail/B123"))
+        assertTrue(InputUrlPolicy.isBlockedPaidDrmUrl("https://amazon.co.uk/Prime-Video/movie/123"))
+        assertTrue(InputUrlPolicy.isBlockedPaidDrmUrl("https://vimeo.com/ondemand/movie123"))
+        assertTrue(InputUrlPolicy.isBlockedPaidDrmUrl("https://play.google.com/store/movies/details/Movie?id=123"))
+
+        assertFalse(InputUrlPolicy.isBlockedPaidDrmUrl("https://amazon.com/dp/B000TEST"))
+        assertFalse(InputUrlPolicy.isBlockedPaidDrmUrl("https://vimeo.com/123456789"))
+    }
+
+    @Test fun keepsPublicDownloaderCoreAllowed() {
+        val allowed = listOf(
+            "https://youtube.com/watch?v=abcdefghijk",
+            "https://youtube.com/@creator",
+            "https://facebook.com/reel/123",
+            "https://instagram.com/reel/ABC123/",
+            "https://tiktok.com/@creator/video/123456",
+            "https://example.com/public-video.mp4"
+        )
+
+        allowed.forEach { url ->
+            assertTrue("Expected public URL to remain valid: $url", InputUrlPolicy.isValidWebUrl(url))
+            assertFalse("Public URL must not be paid/DRM blocked: $url", InputUrlPolicy.isBlockedPaidDrmUrl(url))
+            assertTrue("Public URL must remain allowed: $url", InputUrlPolicy.isAllowedDownloadUrl(url))
+        }
+    }
+
+    @Test fun blocksPaidServiceSubdomainsToo() {
+        assertTrue(InputUrlPolicy.isBlockedPaidDrmUrl("https://watch.netflix.com/title/123"))
+        assertTrue(InputUrlPolicy.isBlockedPaidDrmUrl("https://app.hulu.com/watch/123"))
+    }
+
     @Test fun identifiesCollectionLinksWithoutBlockingDirectMedia() {
         assertTrue(InputUrlPolicy.isLikelyCollectionUrl("https://youtube.com/@babyrainbowhi"))
         assertTrue(InputUrlPolicy.isLikelyCollectionUrl("https://youtube.com/channel/UC123"))
