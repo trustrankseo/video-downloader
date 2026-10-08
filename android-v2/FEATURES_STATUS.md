@@ -39,8 +39,15 @@ The old Premium purchase page and Google Billing integration are removed from v1
 - Once the Uptodown page is opened for review, the automatic prompt stops
 - No fake/incentivized review text is generated; users are asked for their own experience
 
-### ✅ Ads status
-Advertising is deferred until the planned 10,000-user milestone. v1.5.0 contains no AppLovin or other advertising SDK.
+### ✅ AppLovin MAX ads
+- AppLovin MAX SDK is integrated for v1.5.0.
+- A small banner is placed at the bottom of the Downloader screen.
+- Interstitial ads are requested only after a completed operation with at least one successful download.
+- Bulk and Channel/Profile operations trigger at most one interstitial after the whole operation, not one per item.
+- A 90-second local cooldown prevents repeated interstitials.
+- Ads initialize only after the current privacy consent is accepted.
+- Missing ad fill, load errors or display errors do not block downloads.
+- Live serving requires valid AppLovin SDK Key, Banner Ad Unit ID and Interstitial Ad Unit ID in the release environment.
 
 ### ✅ Privacy
 - Mandatory first-launch privacy consent
