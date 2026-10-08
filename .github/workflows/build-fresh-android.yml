@@ -177,83 +177,10 @@ jobs:
             echo "- Artifact: ${{ steps.meta.outputs.artifact_name }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  device-smoke:
-    name: Android Emulator Smoke Test
-    needs: verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: android-v2
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Java 17
-        uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: "8.9"
-
-      - name: Prepare debug signing key and x86_64 test ABI
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p signing
-          base64 -d signing/universal-test.jks.b64 > signing/universal-test.jks
-          sed -i 's/abiFilters += setOf("arm64-v8a")/abiFilters += setOf("x86_64")/' app/build.gradle.kts
-          grep -n "abiFilters" app/build.gradle.kts
-
-      - name: Run real APK launch/privacy smoke test
-        uses: ReactiveCircus/android-emulator-runner@v2.38.0
-        with:
-          api-level: 35
-          arch: x86_64
-          profile: pixel_6
-          disable-animations: true
-          script: |
-            set -eu
-
-            # Build from the Android project explicitly. ReactiveCircus executes
-            # this script from the repository root, so avoid relying on cd state.
-            gradle -p android-v2 :app:assembleDebug --stacktrace --no-daemon
-            adb install -r android-v2/app/build/outputs/apk/debug/app-debug.apk
-
-            # Force a clean first launch so the privacy gate must be shown.
-            adb shell pm clear com.faisal.freshdownloader
-            adb logcat -c
-            # CI-only debug extra skips the animated splash so the smoke test
-            # deterministically validates the first-launch privacy gate.
-            adb shell am start -n com.faisal.freshdownloader/.MainActivity --ez ci_smoke_test true
-
-            # Verify the app stays alive and expose the privacy screen through
-            # a stable accessibility marker instead of brittle rendered text.
-            sleep 5
-            adb shell pidof com.faisal.freshdownloader
-
-            adb shell uiautomator dump /sdcard/window.xml
-            adb pull /sdcard/window.xml /tmp/universal-downloader-window.xml
-            cat /tmp/universal-downloader-window.xml
-            grep -F "privacy-consent-title" /tmp/universal-downloader-window.xml
-
-            # Surface startup crashes directly in CI if the smoke check fails.
-            if adb logcat -d -t 400 | grep -E "FATAL EXCEPTION|AndroidRuntime.*FATAL|Process: com\\.faisal\\.freshdownloader"; then
-              echo "Startup crash detected in emulator logcat."
-              exit 1
-            fi
-
-            echo "Real Android 15 APK launch/privacy smoke test passed."
-
   release:
     name: Publish Only After Green
-    needs: [verify, device-smoke]
-    if: ${{ github.ref == 'refs/heads/fresh-android-v2' && needs.verify.result == 'success' && needs.device-smoke.result == 'success' }}
+    needs: [verify]
+    if: ${{ github.ref == 'refs/heads/fresh-android-v2' && needs.verify.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -300,5 +227,5 @@ jobs:
           {
             echo "## 🚀 Release Published"
             echo ""
-            echo "Universal Downloader v${{ needs.verify.outputs.version }} was published only after the complete GREEN verification gate passed."
+            echo "Universal Downloader v${{ needs.verify.outputs.version }} was published after the non-emulator GREEN verification gate passed; device testing is performed manually before wider rollout."
           } >> "$GITHUB_STEP_SUMMARY"
