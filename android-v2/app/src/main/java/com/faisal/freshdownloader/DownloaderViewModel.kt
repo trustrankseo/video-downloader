@@ -62,11 +62,7 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
 
     fun downloadBulk(raw: String, format: FormatPreset) {
         if (state.value.running) return
-        val urls = raw.lineSequence()
-            .map { it.trim() }
-            .filter { it.startsWith("http://") || it.startsWith("https://") }
-            .distinct()
-            .toList()
+        val urls = InputSanitizer.distinctHttpUrls(raw)
         if (urls.isEmpty()) return
 
         abortRequested = false
