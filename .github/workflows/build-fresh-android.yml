@@ -136,7 +136,18 @@ jobs:
             exit 1
           fi
 
-          for dex in $(zipinfo -1 "$APK" | grep -E '^classes[0-9]*\.dex
+          while IFS= read -r dex; do
+            if unzip -p "$APK" "$dex" | strings | grep -Eqi 'com[./]applovin|AppLovinSdk|MaxInterstitialAd|MaxAdView'; then
+              echo "AppLovin code reference found in $dex."
+              exit 1
+            fi
+          done < <(zipinfo -1 "$APK" | grep -E '^classes[0-9]*\.dex$')
+
+          echo "Ad-free gate passed: no AD_ID permission or AppLovin classes."
+
+      - name: Enforce architecture and APK size budget
+        shell: bash
+        run: |
           set -euo pipefail
           APK="app/build/outputs/apk/uptodown/app-uptodown.apk"
           APK_SIZE="$(stat -c%s "$APK")"
