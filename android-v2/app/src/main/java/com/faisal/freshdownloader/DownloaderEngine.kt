@@ -101,6 +101,9 @@ class DownloaderEngine(private val context: Context) {
             require(InputUrlPolicy.isValidWebUrl(normalized)) {
                 "Please enter a valid public http/https URL."
             }
+            InputUrlPolicy.paidDrmBlockReason(normalized)?.let {
+                throw IllegalArgumentException("PAID_DRM_BLOCKED: $it")
+            }
             require(!InputUrlPolicy.isLikelyCollectionUrl(normalized)) {
                 "This is a channel/profile/playlist URL. Use Channel mode."
             }
@@ -112,6 +115,10 @@ class DownloaderEngine(private val context: Context) {
             val targetUrl = if (shouldResolveRedirect(normalized)) {
                 runCatching { resolveRedirectUrl(normalized) }.getOrDefault(normalized)
             } else normalized
+
+            InputUrlPolicy.paidDrmBlockReason(targetUrl)?.let {
+                throw IllegalArgumentException("PAID_DRM_BLOCKED: $it")
+            }
 
             if (cancelRequested.get()) throw CancellationException("Cancelled")
 
@@ -226,10 +233,17 @@ class DownloaderEngine(private val context: Context) {
         if (!InputUrlPolicy.isValidWebUrl(normalized)) {
             return Result.failure(IllegalArgumentException("Please enter a valid public collection URL."))
         }
+        InputUrlPolicy.paidDrmBlockReason(normalized)?.let {
+            return Result.failure(IllegalArgumentException("PAID_DRM_BLOCKED: $it"))
+        }
 
         val targetUrl = if (shouldResolveRedirect(normalized)) {
             runCatching { resolveRedirectUrl(normalized) }.getOrDefault(normalized)
         } else normalized
+
+        InputUrlPolicy.paidDrmBlockReason(targetUrl)?.let {
+            return Result.failure(IllegalArgumentException("PAID_DRM_BLOCKED: $it"))
+        }
 
         if (cancelRequested.get()) return cancelledResult()
 
