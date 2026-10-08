@@ -674,7 +674,7 @@ private fun TaskCard(task: DownloadTask) {
             }
 
             LinearProgressIndicator(
-                progress = task.progress,
+                progress = { task.progress },
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(99.dp)),
                 color = statusColor,
                 trackColor = WhiteSoft.copy(alpha = 0.07f)
@@ -699,11 +699,7 @@ private fun EmptyState(outputPath: String) {
     }
 }
 
-private fun bulkUrlCount(raw: String): Int = raw.lineSequence()
-    .map { it.trim() }
-    .filter { it.startsWith("http://") || it.startsWith("https://") }
-    .distinct()
-    .count()
+private fun bulkUrlCount(raw: String): Int = InputSanitizer.distinctHttpUrls(raw).size
 
 
 @Composable
