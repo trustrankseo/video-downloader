@@ -42,4 +42,15 @@ class InputUrlPolicyTest {
         assertFalse(InputUrlPolicy.isValidWebUrl("https:///missing-host"))
         assertFalse(InputUrlPolicy.isValidWebUrl("http://"))
     }
+
+    @Test fun identifiesCollectionLinksWithoutBlockingDirectMedia() {
+        assertTrue(InputUrlPolicy.isLikelyCollectionUrl("https://youtube.com/@babyrainbowhi"))
+        assertTrue(InputUrlPolicy.isLikelyCollectionUrl("https://youtube.com/channel/UC123"))
+        assertTrue(InputUrlPolicy.isLikelyCollectionUrl("https://youtube.com/playlist?list=PL123"))
+        assertTrue(InputUrlPolicy.isLikelyCollectionUrl("https://tiktok.com/@creator"))
+        assertFalse(InputUrlPolicy.isLikelyCollectionUrl("https://youtube.com/watch?v=abcdefghijk"))
+        assertFalse(InputUrlPolicy.isLikelyCollectionUrl("https://youtube.com/shorts/abcdefghijk"))
+        assertFalse(InputUrlPolicy.isLikelyCollectionUrl("https://tiktok.com/@creator/video/123456"))
+        assertFalse(InputUrlPolicy.isLikelyCollectionUrl("https://instagram.com/reel/ABC123/"))
+    }
 }
