@@ -359,6 +359,8 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
                 "This item requires platform authentication; guest mode cannot access it."
             msg.contains("403", ignoreCase = true) ->
                 "Platform blocked the request (403). Try updating the engine or another public URL."
+            msg.contains("MEDIA_INFO_TIMEOUT", ignoreCase = true) ->
+                "YouTube media info timed out. The extractor/client challenge stalled. Tap Retry."
             msg.contains("timed out", ignoreCase = true) || msg.contains("timeout", ignoreCase = true) ->
                 "The media server timed out. Tap Retry."
             msg.isBlank() -> "Unknown download error"
