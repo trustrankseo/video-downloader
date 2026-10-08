@@ -29,31 +29,27 @@ Version 1.5.0 does **not** gate Bulk or Channel/Profile behind a subscription.
 - Contact Us
 - Report a Problem
 
-The old Premium purchase page is removed from this Uptodown ads build.
+The old Premium purchase page and Google Billing integration are removed from v1.5.0.
 
-### ✅ AppLovin MAX ads
-- Banner placement: Downloader screen bottom
-- Interstitial placement: after a successful completed download operation
-- Bulk/Channel: maximum one interstitial opportunity after the whole operation, not one per item
-- 90-second interstitial cooldown
-- Failed/cancelled operations do not trigger an ad
-- Ad load/show failure does not stop or fail a download
-- AppLovin initialization happens only after Privacy Policy consent
+### ✅ Uptodown review feedback prompt
+- Triggered only after real usage: at least 3 successful downloads
+- Opens the configured official Uptodown app listing
+- Maybe Later snoozes the prompt for 7 days
+- Don't Ask Again permanently disables the prompt on that installation
+- Once the Uptodown page is opened for review, the automatic prompt stops
+- No fake/incentivized review text is generated; users are asked for their own experience
 
-Live ads require the release build to receive the developer's AppLovin SDK Key, Banner Ad Unit ID and Interstitial Ad Unit ID at build time.
+### ✅ Ads status
+Advertising is deferred until the planned 10,000-user milestone. v1.5.0 contains no AppLovin or other advertising SDK.
 
 ### ✅ Privacy
 - Mandatory first-launch privacy consent
 - English and Simplified Chinese policy
-- Privacy consent version 4 for the ads change
-- AppLovin advertising/device-signal disclosure
 - In-app Privacy Policy remains accessible from the sidebar
 - No precise-location permission is required
 
 ### ✅ Refer & Share / install record
 Each installation has a privacy-safe app-generated install ID and referral code. Referral linking can be entered manually or captured from supported referral sources. A pending referral activates after a successful download.
-
-The current free ads build does not award Premium trials. Cross-device referral rewards/statistics still require a backend/account system.
 
 ### ✅ Appearance
 - Dark
@@ -66,26 +62,23 @@ The About page identifies **Zubair Abbas — Developer & creator of Universal Do
 
 ## Platform-dependent behavior
 
-### 🟡 YouTube
-Direct public URLs are a strong use case. Playlist/channel discovery is implemented, but YouTube may return anti-bot, authentication or PO-token restrictions depending on the current platform environment.
+Direct public URLs can work where the relevant source exposes media to the extractor. Channel/profile enumeration can be limited by authentication, anti-bot changes, source redesigns or other platform-side behavior. The app should fail cleanly rather than claim a bypass.
 
-### ⚠️ Instagram / Facebook / other sources
-Direct public items may work when the platform exposes them to guest extraction. Full profile/page enumeration is not guaranteed. The app should fail cleanly rather than claim a bypass.
+## Public-media policy
 
-### Public-media policy
 Universal Downloader is an independent utility and is not affiliated with, endorsed by, sponsored by, or associated with any third-party social-media or media platform. Users should download only content they own or are authorized to save.
 
 ## How a normal download works
 
 1. User accepts the current Privacy Policy.
-2. App initializes its local media engine and, when configured, AppLovin MAX.
+2. App initializes its local media engine.
 3. User selects Single, Bulk or Channel/Profile.
 4. User selects MP4 or MP3.
 5. App processes the public URL(s) through the local downloader engine.
 6. Progress/status appears in the queue.
 7. On success, files are saved to the Universal Downloader output folder.
-8. After the whole successful operation finishes, one interstitial may be shown if loaded and the 90-second cooldown permits it.
-9. Ad unavailability never blocks the completed download.
+8. Successful usage increments the local review-prompt eligibility counter.
+9. Once eligible, the app can ask the user to share an honest rating/review on Uptodown.
 
 ## Backend-required future features
 
@@ -94,7 +87,3 @@ Universal Downloader is an independent utility and is not affiliated with, endor
 - Central fraud controls
 - Direct in-app support reporting
 - Server-side entitlement systems if subscriptions are reintroduced later
-
-## Recommended next feature
-
-A local **Download History & File Manager** remains a useful next feature: title, format, date, file location, open/play, share, delete and re-download.
