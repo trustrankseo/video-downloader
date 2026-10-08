@@ -155,6 +155,51 @@ private fun AnimatedSplash(onFinished: () -> Unit) {
 @Composable
 fun DownloaderScreen(vm: DownloaderViewModel = viewModel()) {
     val ui by vm.state
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val reviewManager = remember { UptodownReviewManager(context) }
+    var showReviewPrompt by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(ui.reviewEventId, ui.running) {
+        val eventId = ui.reviewEventId
+        if (eventId != 0L && !ui.running) {
+            showReviewPrompt = reviewManager.shouldPrompt()
+            vm.consumeReviewEvent(eventId)
+        }
+    }
+
+    if (showReviewPrompt) {
+        AlertDialog(
+            onDismissRequest = {
+                reviewManager.remindLater()
+                showReviewPrompt = false
+            },
+            title = { Text("Enjoying Universal Downloader?") },
+            text = {
+                Text("Your feedback helps us improve the app. Please rate Universal Downloader and share your experience on Uptodown.")
+            },
+            confirmButton = {
+                Button(onClick = {
+                    reviewManager.openUptodownReview(context)
+                    showReviewPrompt = false
+                }) {
+                    Text("RATE ON UPTODOWN")
+                }
+            },
+            dismissButton = {
+                Column(horizontalAlignment = Alignment.End) {
+                    TextButton(onClick = {
+                        reviewManager.remindLater()
+                        showReviewPrompt = false
+                    }) { Text("MAYBE LATER") }
+                    TextButton(onClick = {
+                        reviewManager.neverAskAgain()
+                        showReviewPrompt = false
+                    }) { Text("DON'T ASK AGAIN") }
+                }
+            }
+        )
+    }
+
     var tab by remember { mutableIntStateOf(0) }
     var singleUrl by remember { mutableStateOf("") }
     var bulkUrls by remember { mutableStateOf("") }
