@@ -11,10 +11,6 @@ val uptodownAppUrl = providers.environmentVariable("UPTODOWN_APP_URL")
     .get()
     .trim()
     .ifBlank { "https://com-faisal-freshdownloader.en.uptodown.com/android/download" }
-val appLovinSdkKey = providers.environmentVariable("APPLOVIN_SDK_KEY").orElse("").get()
-val appLovinBannerAdUnitId = providers.environmentVariable("APPLOVIN_BANNER_AD_UNIT_ID").orElse("").get()
-val appLovinInterstitialAdUnitId = providers.environmentVariable("APPLOVIN_INTERSTITIAL_AD_UNIT_ID").orElse("").get()
-
 android {
     namespace = "com.faisal.freshdownloader"
     compileSdk = 35
@@ -23,8 +19,8 @@ android {
         applicationId = "com.faisal.freshdownloader"
         minSdk = 24
         targetSdk = 35
-        versionCode = 43
-        versionName = "1.6.2"
+        versionCode = 44
+        versionName = "1.6.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Uptodown currently distributes this app as arm64-v8a. Shipping only the
@@ -33,9 +29,6 @@ android {
             abiFilters += setOf("arm64-v8a")
         }
         buildConfigField("String", "UPTODOWN_APP_URL", buildConfigString(uptodownAppUrl))
-        buildConfigField("String", "APPLOVIN_SDK_KEY", buildConfigString(appLovinSdkKey))
-        buildConfigField("String", "APPLOVIN_BANNER_AD_UNIT_ID", buildConfigString(appLovinBannerAdUnitId))
-        buildConfigField("String", "APPLOVIN_INTERSTITIAL_AD_UNIT_ID", buildConfigString(appLovinInterstitialAdUnitId))
 
         // Keep only the locales actually used by this app. This also strips
         // unused transitive-library translations from the release APK.
@@ -151,7 +144,6 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    implementation("com.applovin:applovin-sdk:13.6.4")
 
     val youtubedlAndroid = "0.18.1"
     implementation("io.github.junkfood02.youtubedl-android:library:$youtubedlAndroid")
