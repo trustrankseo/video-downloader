@@ -8,6 +8,7 @@ import java.util.UUID
 
 class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
     private val engine = DownloaderEngine(app)
+    private val reviewManager = UptodownReviewManager(app)
 
     @Volatile
     private var abortRequested = false
@@ -53,7 +54,7 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
             state.value = state.value.copy(
                 running = false,
                 statusLine = if (abortRequested) "Download stopped" else "Finished",
-                adEventId = if (hasSuccess) System.nanoTime() else 0L
+                reviewEventId = if (hasSuccess && reviewManager.shouldPrompt()) System.nanoTime() else 0L
             )
         }
     }
@@ -80,7 +81,7 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
             state.value = state.value.copy(
                 running = false,
                 statusLine = if (abortRequested) "Bulk queue stopped" else "Bulk queue finished",
-                adEventId = if (hasSuccess) System.nanoTime() else 0L
+                reviewEventId = if (hasSuccess && reviewManager.shouldPrompt()) System.nanoTime() else 0L
             )
         }
     }
@@ -133,14 +134,14 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
             state.value = state.value.copy(
                 running = false,
                 statusLine = if (abortRequested) "Channel/profile download stopped" else "Collection finished",
-                adEventId = if (hasSuccess) System.nanoTime() else 0L
+                reviewEventId = if (hasSuccess && reviewManager.shouldPrompt()) System.nanoTime() else 0L
             )
         }
     }
 
-    fun consumeAdEvent(eventId: Long) {
-        if (eventId != 0L && state.value.adEventId == eventId) {
-            state.value = state.value.copy(adEventId = 0L)
+    fun consumeReviewEvent(eventId: Long) {
+        if (eventId != 0L && state.value.reviewEventId == eventId) {
+            state.value = state.value.copy(reviewEventId = 0L)
         }
     }
 
@@ -178,6 +179,7 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
             updateTask(task.id, DownloadStatus.CANCELLED, 0f, "Stopped by user")
         } else if (result.isSuccess) {
             ReferralManager(getApplication()).activatePendingReferralAfterSuccessfulDownload()
+            reviewManager.recordSuccessfulDownload()
             updateTask(task.id, DownloadStatus.COMPLETE, 1f, "Saved")
         } else {
             updateTask(task.id, DownloadStatus.FAILED, 0f, friendlyError(result.exceptionOrNull()))
