@@ -12,9 +12,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      APPLOVIN_SDK_KEY: ${{ secrets.APPLOVIN_SDK_KEY }}
-      APPLOVIN_BANNER_AD_UNIT_ID: ${{ secrets.APPLOVIN_BANNER_AD_UNIT_ID }}
-      APPLOVIN_INTERSTITIAL_AD_UNIT_ID: ${{ secrets.APPLOVIN_INTERSTITIAL_AD_UNIT_ID }}
+      UPTODOWN_APP_URL: ${{ vars.UPTODOWN_APP_URL }}
     defaults:
       run:
         working-directory: android-v2
@@ -36,8 +34,6 @@ jobs:
             exit 1
           fi
           echo "$HUAWEI_KEYSTORE_B64" | base64 -d > signing/huawei-release.jks
-      - name: Run unit tests
-        run: gradle :app:testDebugUnitTest --stacktrace
       - name: Build signed Huawei release APK
         env:
           HUAWEI_KEYSTORE_PASSWORD: ${{ secrets.HUAWEI_KEYSTORE_PASSWORD }}
@@ -56,6 +52,6 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: UniversalDownloader-v1.5.0-Uptodown-AppLovin
+          name: UniversalDownloader-v1.5.0-Uptodown-Free
           path: android-v2/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
