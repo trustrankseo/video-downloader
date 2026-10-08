@@ -178,9 +178,9 @@ fun DownloaderScreen(vm: DownloaderViewModel = viewModel()) {
         }
     }
 
-    LaunchedEffect(ui.reviewEventId, ui.running) {
+    LaunchedEffect(ui.reviewEventId, ui.adEventId, ui.running) {
         val eventId = ui.reviewEventId
-        if (eventId != 0L && !ui.running) {
+        if (eventId != 0L && ui.adEventId == 0L && !ui.running) {
             showReviewPrompt = reviewManager.shouldPrompt()
             vm.consumeReviewEvent(eventId)
         }
