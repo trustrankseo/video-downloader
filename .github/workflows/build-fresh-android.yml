@@ -3,7 +3,7 @@ name: Universal Downloader Auto Green Release
 on:
   workflow_dispatch:
   push:
-    branches: [fresh-android-v2, audit-hardening-v1.6.0, hotfix-download-engine-v1.6.1, hotfix-youtube-engine-v1.6.2, hotfix-remove-applovin-v1.6.3]
+    branches: [fresh-android-v2, audit-hardening-v1.6.0, hotfix-download-engine-v1.6.1, hotfix-youtube-engine-v1.6.2, hotfix-remove-applovin-v1.6.3, hotfix-paid-drm-block-v1.6.4]
     paths:
       - "android-v2/**"
       - ".github/workflows/build-fresh-android.yml"
@@ -195,6 +195,7 @@ jobs:
             echo "- Uptodown certificate MD5 + SHA-256: passed"
             echo "- APK installability checks: passed"
             echo "- Ad-free APK gate: passed (no AD_ID / AppLovin)"
+            echo "- Paid/DRM policy unit tests: passed"
             echo "- arm64-only architecture gate: passed"
             echo "- APK size <= 60 MiB: passed"
             echo "- Artifact: ${{ steps.meta.outputs.artifact_name }}"
