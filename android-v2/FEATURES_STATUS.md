@@ -1,6 +1,6 @@
 # Universal Downloader — Feature Status & How It Works
 
-Current user-facing version: **v1.6.0**
+Current user-facing version: **v1.6.3**
 
 A successful Android build confirms that the app compiles and packages correctly. Third-party media downloading remains source/extractor dependent and can change outside the app.
 
@@ -16,7 +16,7 @@ A successful Android build confirms that the app compiles and packages correctly
 - Clear Finished
 - Progress and ETA where available
 
-Version 1.6.0 does **not** gate Bulk or Channel/Profile behind a subscription.
+Version 1.6.3 does **not** gate Bulk or Channel/Profile behind a subscription.
 
 ### ✅ Sidebar
 - Downloader
@@ -39,15 +39,11 @@ The old Premium purchase page and Google Billing integration are removed from v1
 - Once the Uptodown page is opened for review, the automatic prompt stops
 - No fake/incentivized review text is generated; users are asked for their own experience
 
-### ✅ AppLovin MAX ads
-- AppLovin MAX SDK is integrated for v1.6.0.
-- A small banner is placed at the bottom of the Downloader screen.
-- Interstitial ads are requested only after a completed operation with at least one successful download.
-- Bulk and Channel/Profile operations trigger at most one interstitial after the whole operation, not one per item.
-- A 90-second local cooldown prevents repeated interstitials.
-- Ads initialize only after the current privacy consent is accepted.
-- Missing ad fill, load errors or display errors do not block downloads.
-- Live serving requires valid AppLovin SDK Key, Banner Ad Unit ID and Interstitial Ad Unit ID in the release environment.
+### ✅ Ad-free distribution
+- No AppLovin MAX SDK.
+- No banner or interstitial advertising.
+- No advertising-ID permission.
+- Download and referral behavior is independent of ad services.
 
 ### ✅ Privacy
 - Mandatory first-launch privacy consent
@@ -96,7 +92,7 @@ Universal Downloader is an independent utility and is not affiliated with, endor
 - Server-side entitlement systems if subscriptions are reintroduced later
 
 
-## v1.6.0 quality gates
+## v1.6.3 quality gates
 
 A release is considered publishable only when all of these pass:
 
