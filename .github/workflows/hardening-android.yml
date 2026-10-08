@@ -1,0 +1,203 @@
+name: Universal Downloader Hardening Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [hardening-10of10]
+    paths:
+      - "android-v2/**"
+      - ".github/workflows/hardening-android.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: universal-downloader-hardening-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Tests, Compact APK & Compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      UPTODOWN_APP_URL: ${{ vars.UPTODOWN_APP_URL }}
+      APPLOVIN_SDK_KEY: ${{ secrets.APPLOVIN_SDK_KEY }}
+      APPLOVIN_BANNER_AD_UNIT_ID: ${{ secrets.APPLOVIN_BANNER_AD_UNIT_ID }}
+      APPLOVIN_INTERSTITIAL_AD_UNIT_ID: ${{ secrets.APPLOVIN_INTERSTITIAL_AD_UNIT_ID }}
+    defaults:
+      run:
+        working-directory: android-v2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "8.9"
+
+      - name: Prepare update-compatible signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p signing
+          test -f signing/universal-test.jks.b64
+          base64 -d signing/universal-test.jks.b64 > signing/universal-test.jks
+          keytool -list -v -keystore signing/universal-test.jks -storepass android -alias universaltest \
+            | grep -E "Owner:|SHA256:"
+
+      - name: Unit tests and Android lint
+        run: gradle :app:testDebugUnitTest :app:lintDebug --stacktrace --no-daemon
+
+      - name: Build compact Uptodown arm64 APK
+        run: gradle :app:assembleUptodown -PtargetAbi=arm64-v8a --stacktrace --no-daemon
+
+      - name: Verify package, version, signer, ABI and size
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK="app/build/outputs/apk/uptodown/app-uptodown.apk"
+          EXPECTED_PACKAGE="com.faisal.freshdownloader"
+          EXPECTED_SHA256="146b8de20d69a75cecef7b949e2280a6779ae2590e4ed2af0c3f733a774af1ed"
+          EXPECTED_MD5="471d573bfd94138a052087a80679b4f4"
+          MAX_BYTES=$((100 * 1024 * 1024))
+
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -1)"
+          ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+
+          test -s "$APK"
+          test -n "$AAPT"
+          test -n "$ZIPALIGN"
+          test -n "$APKSIGNER"
+
+          unzip -t "$APK" >/tmp/apk-unzip-test.txt
+          "$ZIPALIGN" -c -P 16 -v 4 "$APK" >/tmp/zipalign.txt
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/signer.txt
+
+          BADGING="$("$AAPT" dump badging "$APK")"
+          echo "$BADGING" | head -n 30
+          PACKAGE="$(echo "$BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+          VERSION_CODE="$(echo "$BADGING" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
+
+          SHA256="$(sed -n 's/^.*certificate SHA-256 digest: //p' /tmp/signer.txt | head -n 1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          MD5="$(sed -n 's/^.*certificate MD5 digest: //p' /tmp/signer.txt | head -n 1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+
+          test "$PACKAGE" = "$EXPECTED_PACKAGE"
+          test -n "$VERSION_CODE"
+          test "$VERSION_CODE" -gt 0
+          test "$SHA256" = "$EXPECTED_SHA256"
+          test "$MD5" = "$EXPECTED_MD5"
+
+          mapfile -t ABIS < <(unzip -Z1 "$APK" | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u)
+          printf 'Bundled ABIs: %s\n' "${ABIS[*]}"
+          test "${#ABIS[@]}" -eq 1
+          test "${ABIS[0]}" = "arm64-v8a"
+
+          SIZE_BYTES="$(stat -c%s "$APK")"
+          echo "APK size: $SIZE_BYTES bytes"
+          test "$SIZE_BYTES" -le "$MAX_BYTES"
+
+          sha256sum "$APK"
+          ls -lh "$APK"
+
+      - name: Upload hardening APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: UniversalDownloader-hardening-arm64
+          path: android-v2/app/build/outputs/apk/uptodown/app-uptodown.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  emulator:
+    name: Install & Launch Smoke Test
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      UPTODOWN_APP_URL: ${{ vars.UPTODOWN_APP_URL }}
+      APPLOVIN_SDK_KEY: ${{ secrets.APPLOVIN_SDK_KEY }}
+      APPLOVIN_BANNER_AD_UNIT_ID: ${{ secrets.APPLOVIN_BANNER_AD_UNIT_ID }}
+      APPLOVIN_INTERSTITIAL_AD_UNIT_ID: ${{ secrets.APPLOVIN_INTERSTITIAL_AD_UNIT_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "8.9"
+
+      - name: Prepare debug signing key
+        working-directory: android-v2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p signing
+          base64 -d signing/universal-test.jks.b64 > signing/universal-test.jks
+
+      - name: Build debug APK for emulator
+        working-directory: android-v2
+        run: gradle :app:assembleDebug --stacktrace --no-daemon
+
+      - name: Boot emulator, install and launch
+        uses: ReactiveCircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            APK="android-v2/app/build/outputs/apk/debug/app-debug.apk"
+            test -s "$APK"
+            adb install -r "$APK"
+            adb shell am force-stop com.faisal.freshdownloader
+            adb logcat -c
+            adb shell am start -W -n com.faisal.freshdownloader/.MainActivity | tee /tmp/launch.txt
+            grep -q "Status: ok" /tmp/launch.txt
+            sleep 4
+            adb shell pidof com.faisal.freshdownloader
+            adb shell dumpsys activity activities | grep -q "com.faisal.freshdownloader/.MainActivity"
+            adb shell uiautomator dump /sdcard/window.xml || true
+            adb pull /sdcard/window.xml /tmp/window.xml || true
+            if test -s /tmp/window.xml; then
+              grep -Eq "Privacy Policy|Universal Downloader" /tmp/window.xml
+            fi
+            if adb logcat -d | grep -E "FATAL EXCEPTION.*com\.faisal\.freshdownloader|Process: com\.faisal\.freshdownloader.*FATAL"; then
+              echo "Fatal crash detected"
+              exit 1
+            fi
+
+      - name: Write hardening summary
+        shell: bash
+        run: |
+          {
+            echo "## ✅ Hardening gate passed"
+            echo ""
+            echo "- Unit tests: passed"
+            echo "- Android lint: passed"
+            echo "- Uptodown signing certificate: matched"
+            echo "- Package identity: matched"
+            echo "- arm64-only APK: verified"
+            echo "- Size gate: <= 100 MiB"
+            echo "- Emulator install: passed"
+            echo "- MainActivity launch: passed"
+            echo "- Fatal launch crash check: passed"
+          } >> "$GITHUB_STEP_SUMMARY"
