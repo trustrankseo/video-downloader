@@ -25,7 +25,7 @@ Version 1.5.0 may:
 - show an occasional interstitial after a successful completed download operation;
 - enforce a local cooldown between interstitials.
 
-AppLovin and its advertising partners may process device/app signals and an advertising identifier where available for ad delivery, measurement, fraud prevention and frequency control. Version 1.5.0 requests non-personalized advertising by default. AppLovin and advertising partners operate under their own privacy terms.
+AppLovin and its advertising partners may process device/app signals and an advertising identifier where available for ad delivery, measurement, fraud prevention and frequency control. AppLovin and advertising partners operate under their own privacy terms.
 
 Ads are not initialized before the app's privacy-consent gate is accepted. An ad load or display failure does not block a download.
 
@@ -93,7 +93,7 @@ v1.5.0 可能：
 - 在成功完成下载操作后偶尔显示插页式广告；
 - 在本地执行插页式广告冷却时间控制。
 
-AppLovin 及其广告合作伙伴可能处理设备/应用信号，以及在可用情况下的广告标识符，用于广告投放、效果衡量、防欺诈和频次控制。v1.5.0 默认请求非个性化广告。AppLovin 及其广告合作伙伴适用其各自的隐私条款。
+AppLovin 及其广告合作伙伴可能处理设备/应用信号，以及在可用情况下的广告标识符，用于广告投放、效果衡量、防欺诈和频次控制。AppLovin 及其广告合作伙伴适用其各自的隐私条款。
 
 在用户接受应用内隐私同意页面之前，广告不会初始化。广告加载或显示失败不会阻止下载。
 
