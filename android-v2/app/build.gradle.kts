@@ -7,6 +7,9 @@ fun buildConfigString(value: String): String =
     "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 val uptodownAppUrl = providers.environmentVariable("UPTODOWN_APP_URL").orElse("").get()
+val appLovinSdkKey = providers.environmentVariable("APPLOVIN_SDK_KEY").orElse("").get()
+val appLovinBannerAdUnitId = providers.environmentVariable("APPLOVIN_BANNER_AD_UNIT_ID").orElse("").get()
+val appLovinInterstitialAdUnitId = providers.environmentVariable("APPLOVIN_INTERSTITIAL_AD_UNIT_ID").orElse("").get()
 
 android {
     namespace = "com.faisal.freshdownloader"
@@ -19,6 +22,9 @@ android {
         versionCode = 35
         versionName = "1.5.0"
         buildConfigField("String", "UPTODOWN_APP_URL", buildConfigString(uptodownAppUrl))
+        buildConfigField("String", "APPLOVIN_SDK_KEY", buildConfigString(appLovinSdkKey))
+        buildConfigField("String", "APPLOVIN_BANNER_AD_UNIT_ID", buildConfigString(appLovinBannerAdUnitId))
+        buildConfigField("String", "APPLOVIN_INTERSTITIAL_AD_UNIT_ID", buildConfigString(appLovinInterstitialAdUnitId))
 
         vectorDrawables {
             useSupportLibrary = true
@@ -96,6 +102,7 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("com.android.installreferrer:installreferrer:2.2")
+    implementation("com.applovin:applovin-sdk:13.6.4")
 
     val youtubedlAndroid = "0.18.1"
     implementation("io.github.junkfood02.youtubedl-android:library:$youtubedlAndroid")
