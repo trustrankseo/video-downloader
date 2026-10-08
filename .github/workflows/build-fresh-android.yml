@@ -31,35 +31,27 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
-      - name: Prepare Huawei release signing key
-        env:
-          HUAWEI_KEYSTORE_B64: ${{ secrets.HUAWEI_KEYSTORE_B64 }}
+      - name: Prepare Uptodown update signing key
         run: |
-          if [ -z "$HUAWEI_KEYSTORE_B64" ]; then
-            echo "Missing HUAWEI_KEYSTORE_B64 repository secret"
-            exit 1
-          fi
-          echo "$HUAWEI_KEYSTORE_B64" | base64 -d > signing/huawei-release.jks
+          mkdir -p signing
+          base64 -d signing/universal-test.jks.b64 > signing/universal-test.jks
+          keytool -list -v -keystore signing/universal-test.jks -storepass android -alias universaltest | grep -E "Owner:|SHA256:"
       - name: Run unit tests
         run: gradle :app:testDebugUnitTest --stacktrace
-      - name: Build signed Huawei release APK
-        env:
-          HUAWEI_KEYSTORE_PASSWORD: ${{ secrets.HUAWEI_KEYSTORE_PASSWORD }}
+      - name: Build Uptodown update-compatible APK
+        run: gradle :app:assembleUptodown --stacktrace
+      - name: Verify Uptodown signer matches installed-app chain
         run: |
-          if [ -z "$HUAWEI_KEYSTORE_PASSWORD" ]; then
-            echo "Missing HUAWEI_KEYSTORE_PASSWORD repository secret"
-            exit 1
-          fi
-          gradle :app:assembleRelease --stacktrace
-      - name: Verify production-signed release APK
-        run: |
-          test -f signing/huawei-release.jks
-          test ! -f signing/universal-test.jks
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
           test -n "$APKSIGNER"
-          "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          APK="app/build/outputs/apk/uptodown/app-uptodown.apk"
+          test -f "$APK"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          ACTUAL="$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          EXPECTED="146b8de20d69a75cecef7b949e2280a6779ae2590e4ed2af0c3f733a774af1ed"
+          test "$ACTUAL" = "$EXPECTED"
       - name: Prepare release APK
-        run: cp app/build/outputs/apk/release/app-release.apk UniversalDownloader-v1.5.0.apk
+        run: cp app/build/outputs/apk/uptodown/app-uptodown.apk UniversalDownloader-v1.5.0.apk
       - uses: actions/upload-artifact@v4
         with:
           name: UniversalDownloader-v1.5.0-Uptodown-AppLovin
