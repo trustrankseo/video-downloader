@@ -513,9 +513,9 @@ private fun DownloadComposer(
                 StopAction(onStop)
             } else {
                 when (tab) {
-                    0 -> PrimaryAction("DOWNLOAD VIDEO", singleUrl.isNotBlank(), onSingle)
+                    0 -> PrimaryAction("DOWNLOAD VIDEO", InputUrlPolicy.isValidWebUrl(singleUrl), onSingle)
                     1 -> PrimaryAction("START ${bulkUrlCount(bulkUrls)} DOWNLOADS", bulkUrlCount(bulkUrls) > 0, onBulk)
-                    else -> PrimaryAction("DISCOVER & DOWNLOAD", collectionUrl.isNotBlank(), onCollection)
+                    else -> PrimaryAction("DISCOVER & DOWNLOAD", InputUrlPolicy.isValidWebUrl(collectionUrl), onCollection)
                 }
             }
 
@@ -702,8 +702,8 @@ private fun EmptyState(outputPath: String) {
 }
 
 private fun bulkUrlCount(raw: String): Int = raw.lineSequence()
-    .map { it.trim() }
-    .filter { it.startsWith("http://") || it.startsWith("https://") }
+    .map { InputUrlPolicy.normalize(it) }
+    .filter { InputUrlPolicy.isValidWebUrl(it) }
     .distinct()
     .count()
 
