@@ -219,11 +219,11 @@ jobs:
           disable-animations: true
           script: |
             set -eu
-            cd android-v2
 
-            # Build and install the actual debug APK on the Android 15 emulator.
-            gradle :app:assembleDebug --stacktrace --no-daemon
-            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            # Build from the Android project explicitly. ReactiveCircus executes
+            # this script from the repository root, so avoid relying on cd state.
+            gradle -p android-v2 :app:assembleDebug --stacktrace --no-daemon
+            adb install -r android-v2/app/build/outputs/apk/debug/app-debug.apk
 
             # Force a clean first launch so the privacy gate must be shown.
             adb shell pm clear com.faisal.freshdownloader
