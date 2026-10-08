@@ -12,23 +12,23 @@ Current user-facing version: **v1.5.0**
 - MP4 / MP3
 - Hamburger sidebar navigation
 - Refer & Share
-- AppLovin MAX banner + post-download interstitial monetization
 - Device & Eligibility
 - App & Engine
 - Appearance: Dark / White / System + accent color panel
 - Privacy Policy in English + Simplified Chinese
+- Uptodown review feedback prompt after real app usage
 - About Me — Zubair Abbas
 - Contact Us
 - Report a Problem
 
-Version 1.5.0 is a free, ad-supported Uptodown build. Google Play subscription/Premium purchase UI is not included in this build. Single, Bulk and Channel/Profile modes are not subscription-gated.
+Version 1.5.0 is a free Uptodown-focused build. Google Play subscription/Premium purchase UI and billing are removed. Single, Bulk and Channel/Profile modes are not subscription-gated.
 
-Ads initialize only after the user accepts Privacy Policy v4. A banner may appear on the Downloader screen and an interstitial may appear after a successful completed download operation, subject to a 90-second cooldown. Ad load/show failures never block downloads.
+Advertising is intentionally deferred until the app reaches the planned user milestone. No AppLovin or other ad SDK is included in v1.5.0.
+
+The app can politely ask active users for an Uptodown rating/review after at least 3 successful downloads. Users can choose Rate on Uptodown, Maybe Later (7-day snooze), or Don't Ask Again. The prompt only activates when the exact Uptodown listing URL is configured for the build.
 
 The app uses a local yt-dlp/FFmpeg based engine, public/guest access first, no paid YouTube Data API, and does not store social-platform passwords.
 
 ## Important platform note
 
 The Android app and queue/UI features can be confirmed independently, but public-media downloading is source/extractor dependent. No third-party source is advertised as guaranteed or presented as affiliated with Universal Downloader.
-
-For the detailed confirmed-feature list, limitations, platform status, referral flow and how each feature works, see **[FEATURES_STATUS.md](FEATURES_STATUS.md)**.
