@@ -12,6 +12,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.HttpURLConnection
@@ -43,6 +45,10 @@ class DownloaderEngine(private val context: Context) {
     private val activeProcessIds = ConcurrentHashMap.newKeySet<String>()
     private val activeConnections = ConcurrentHashMap.newKeySet<HttpURLConnection>()
     private val cancelRequested = AtomicBoolean(false)
+    private val youtubeUpdateMutex = Mutex()
+    private val enginePrefs by lazy {
+        context.getSharedPreferences("downloader_engine_state", Context.MODE_PRIVATE)
+    }
 
     private val browserUserAgent =
         "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 " +
@@ -97,6 +103,10 @@ class DownloaderEngine(private val context: Context) {
                 "This is a channel/profile/playlist URL. Use Channel mode."
             }
 
+            if (isYouTubeUrl(normalized)) {
+                ensureYoutubeEngineFresh()
+            }
+
             val targetUrl = if (shouldResolveRedirect(normalized)) {
                 runCatching { resolveRedirectUrl(normalized) }.getOrDefault(normalized)
             } else normalized
@@ -121,6 +131,7 @@ class DownloaderEngine(private val context: Context) {
             request.addOption("--print", "after_move:filepath")
             request.addOption("-o", File(jobDir, "%(title)s [%(id)s].%(ext)s").absolutePath)
             applyPublicHeaders(request, targetUrl)
+            applyYouTubeCompatibility(request, targetUrl)
 
             when (format) {
                 FormatPreset.VIDEO_MP4 -> {
@@ -191,6 +202,10 @@ class DownloaderEngine(private val context: Context) {
         } else normalized
 
         if (cancelRequested.get()) return cancelledResult()
+
+        if (isYouTubeUrl(targetUrl)) {
+            ensureYoutubeEngineFresh()
+        }
 
         val discoveryUrls = youtubeCollectionCandidates(targetUrl)
         val extractorAttempt = withContext(Dispatchers.IO) {
@@ -287,6 +302,7 @@ class DownloaderEngine(private val context: Context) {
         request.addOption("--no-warnings")
         request.addOption("--print", if (isYouTubeUrl(url)) "%(id)s" else "%(webpage_url)s")
         applyPublicHeaders(request, url)
+        applyYouTubeCompatibility(request, url)
 
         val processId = "discover-${UUID.randomUUID()}"
         activeProcessIds.add(processId)
@@ -313,6 +329,50 @@ class DownloaderEngine(private val context: Context) {
                 .toList()
         } finally {
             activeProcessIds.remove(processId)
+        }
+    }
+
+    private fun applyYouTubeCompatibility(request: YoutubeDLRequest, url: String) {
+        if (!isYouTubeUrl(url)) return
+
+        val quickJs = File(context.applicationInfo.nativeLibraryDir, "libqjs.so")
+        if (quickJs.isFile) {
+            // yt-dlp only enables Deno by default. Android wrapper 0.18.1 bundles
+            // QuickJS, so point yt-dlp at the actual native executable explicitly.
+            request.addOption("--no-js-runtimes")
+            request.addOption("--js-runtimes", "quickjs:${quickJs.absolutePath}")
+        }
+
+        // Recent YouTube extraction uses yt-dlp's external JS challenge solver.
+        // GitHub is used as the on-demand source when the matching EJS package
+        // is not already present in the embedded Python environment.
+        request.addOption("--remote-components", "ejs:github")
+    }
+
+    private suspend fun ensureYoutubeEngineFresh() {
+        val now = System.currentTimeMillis()
+        val lastUpdate = enginePrefs.getLong(KEY_YOUTUBE_ENGINE_UPDATE_MS, 0L)
+        if (now - lastUpdate < YOUTUBE_ENGINE_REFRESH_MS) return
+
+        youtubeUpdateMutex.withLock {
+            val recheckNow = System.currentTimeMillis()
+            val recheckLast = enginePrefs.getLong(KEY_YOUTUBE_ENGINE_UPDATE_MS, 0L)
+            if (recheckNow - recheckLast < YOUTUBE_ENGINE_REFRESH_MS) return@withLock
+
+            // A failed refresh must never block a download; the bundled engine
+            // remains the fallback. Successful refreshes are cached for 12h.
+            val updated = runCatching {
+                YoutubeDL.getInstance().updateYoutubeDL(
+                    context.applicationContext,
+                    YoutubeDL.UpdateChannel.NIGHTLY
+                )
+            }.isSuccess
+
+            if (updated) {
+                enginePrefs.edit()
+                    .putLong(KEY_YOUTUBE_ENGINE_UPDATE_MS, System.currentTimeMillis())
+                    .apply()
+            }
         }
     }
 
@@ -630,8 +690,16 @@ class DownloaderEngine(private val context: Context) {
         resetCancellation()
         runCatching {
             ensureMediaEngineReady()
-            YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.STABLE)
-            "Downloader engine updated"
+            YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.NIGHTLY)
+            enginePrefs.edit()
+                .putLong(KEY_YOUTUBE_ENGINE_UPDATE_MS, System.currentTimeMillis())
+                .apply()
+            "Downloader engine updated to latest compatibility build"
         }
+    }
+
+    companion object {
+        private const val KEY_YOUTUBE_ENGINE_UPDATE_MS = "youtube_engine_update_ms"
+        private const val YOUTUBE_ENGINE_REFRESH_MS = 12L * 60L * 60L * 1000L
     }
 }
