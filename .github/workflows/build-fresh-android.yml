@@ -1,5 +1,4 @@
-name: Build Fresh Android APK
-# Manual rebuild verification requested 2026-10-08
+name: Universal Downloader Auto Green Release
 
 on:
   workflow_dispatch:
@@ -12,9 +11,18 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: universal-downloader-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
+  verify:
+    name: Test, Build & Verify
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      artifact_name: ${{ steps.meta.outputs.artifact_name }}
     env:
       UPTODOWN_APP_URL: ${{ vars.UPTODOWN_APP_URL }}
       APPLOVIN_SDK_KEY: ${{ secrets.APPLOVIN_SDK_KEY }}
@@ -23,71 +31,164 @@ jobs:
     defaults:
       run:
         working-directory: android-v2
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
+
+      - name: Read app version automatically
+        id: meta
+        shell: bash
+        run: |
+          VERSION="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
+          test -n "$VERSION"
+          ARTIFACT_NAME="UniversalDownloader-v${VERSION}-Uptodown-AppLovin"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+          echo "Detected version: $VERSION"
+
       - name: Prepare Uptodown update signing key
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p signing
+          test -f signing/universal-test.jks.b64
           base64 -d signing/universal-test.jks.b64 > signing/universal-test.jks
-          keytool -list -v -keystore signing/universal-test.jks -storepass android -alias universaltest | grep -E "Owner:|SHA256:"
+          keytool -list -v             -keystore signing/universal-test.jks             -storepass android             -alias universaltest | grep -E "Owner:|SHA256:"
+
       - name: Run unit tests
-        run: gradle :app:testDebugUnitTest --stacktrace
+        run: gradle :app:testDebugUnitTest --stacktrace --no-daemon
+
       - name: Build Uptodown update-compatible APK
-        run: gradle :app:assembleUptodown --stacktrace
-      - name: Verify Uptodown signer matches installed-app chain
+        run: gradle :app:assembleUptodown --stacktrace --no-daemon
+
+      - name: Verify signer matches installed-app chain
+        shell: bash
         run: |
+          set -euo pipefail
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
-          test -n "$APKSIGNER"
           APK="app/build/outputs/apk/uptodown/app-uptodown.apk"
+          EXPECTED="146b8de20d69a75cecef7b949e2280a6779ae2590e4ed2af0c3f733a774af1ed"
+
+          test -n "$APKSIGNER"
           test -f "$APK"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
-          ACTUAL="$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^.*certificate SHA-256 digest: //p' | head -n 1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
-          EXPECTED="146b8de20d69a75cecef7b949e2280a6779ae2590e4ed2af0c3f733a774af1ed"
+
+          ACTUAL="$("$APKSIGNER" verify --print-certs "$APK"             | sed -n 's/^.*certificate SHA-256 digest: //p'             | head -n 1             | tr '[:upper:]' '[:lower:]'             | tr -d ':')"
+
           echo "Expected signer SHA-256: $EXPECTED"
           echo "Actual signer SHA-256:   $ACTUAL"
           test -n "$ACTUAL"
           test "$ACTUAL" = "$EXPECTED"
+
       - name: Validate APK installability
+        shell: bash
         run: |
+          set -euo pipefail
           APK="app/build/outputs/apk/uptodown/app-uptodown.apk"
           test -f "$APK"
+
           unzip -t "$APK" >/tmp/apk-unzip-test.txt
           tail -n 3 /tmp/apk-unzip-test.txt
+
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -1)"
           ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -1)"
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+
           test -n "$AAPT"
           test -n "$ZIPALIGN"
           test -n "$APKSIGNER"
+
           "$AAPT" dump badging "$APK" | head -n 25
           "$ZIPALIGN" -c -P 16 -v 4 "$APK"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
           sha256sum "$APK"
           ls -lh "$APK"
+
       - name: Prepare release APK
-        run: cp app/build/outputs/apk/uptodown/app-uptodown.apk UniversalDownloader-v1.5.0.apk
-      - uses: actions/upload-artifact@v4
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          cp app/build/outputs/apk/uptodown/app-uptodown.apk "UniversalDownloader-v${VERSION}.apk"
+          test -s "UniversalDownloader-v${VERSION}.apk"
+
+      - name: Upload verified APK artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: UniversalDownloader-v1.5.0-Uptodown-AppLovin
-          path: android-v2/UniversalDownloader-v1.5.0.apk
+          name: ${{ steps.meta.outputs.artifact_name }}
+          path: android-v2/UniversalDownloader-v${{ steps.meta.outputs.version }}.apk
           if-no-files-found: error
-      - name: Publish GitHub Release v1.5.0
+          retention-days: 30
+
+      - name: Write green verification summary
+        shell: bash
+        run: |
+          {
+            echo "## ✅ Universal Downloader GREEN"
+            echo ""
+            echo "- Version: v${{ steps.meta.outputs.version }}"
+            echo "- Unit tests: passed"
+            echo "- APK build: passed"
+            echo "- Signer verification: passed"
+            echo "- APK installability checks: passed"
+            echo "- Artifact: ${{ steps.meta.outputs.artifact_name }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Publish Only After Green
+    needs: verify
+    if: ${{ needs.verify.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Download verified artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.verify.outputs.artifact_name }}
+          path: release-apk
+
+      - name: Verify downloaded release file
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="release-apk/UniversalDownloader-v${{ needs.verify.outputs.version }}.apk"
+          test -s "$APK"
+          sha256sum "$APK"
+          ls -lh "$APK"
+
+      - name: Publish GitHub Release only after GREEN
         env:
           GH_TOKEN: ${{ github.token }}
-        working-directory: .
+        shell: bash
         run: |
-          if gh release view v1.5.0 >/dev/null 2>&1; then
-            gh release upload v1.5.0 android-v2/UniversalDownloader-v1.5.0.apk --clobber
+          set -euo pipefail
+          VERSION="${{ needs.verify.outputs.version }}"
+          TAG="v${VERSION}"
+          APK="release-apk/UniversalDownloader-v${VERSION}.apk"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" --clobber
           else
-            gh release create v1.5.0 android-v2/UniversalDownloader-v1.5.0.apk \
-              --target fresh-android-v2 \
-              --title "Universal Downloader v1.5.0" \
-              --notes "Uptodown release with AppLovin MAX banner and interstitial monetization, free Single/Bulk/Channel downloads, updated privacy consent, and stability fixes."
+            gh release create "$TAG" "$APK"               --target fresh-android-v2               --title "Universal Downloader v${VERSION}"               --notes "Automatically verified GREEN release: unit tests, Uptodown APK build, signing-chain verification, APK structure/installability checks, and release artifact validation all passed."
           fi
+
+      - name: Final release summary
+        shell: bash
+        run: |
+          {
+            echo "## 🚀 Release Published"
+            echo ""
+            echo "Universal Downloader v${{ needs.verify.outputs.version }} was published only after the complete GREEN verification gate passed."
+          } >> "$GITHUB_STEP_SUMMARY"
