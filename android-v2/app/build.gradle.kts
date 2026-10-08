@@ -44,6 +44,12 @@ android {
             keyAlias = "universalrelease"
             keyPassword = System.getenv("HUAWEI_KEYSTORE_PASSWORD")
         }
+        create("uptodownRelease") {
+            storeFile = rootProject.file("signing/universal-test.jks")
+            storePassword = "android"
+            keyAlias = "universaltest"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
@@ -54,6 +60,12 @@ android {
             isDebuggable = false
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("huaweiRelease")
+        }
+        create("uptodown") {
+            initWith(getByName("release"))
+            isDebuggable = false
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("uptodownRelease")
         }
     }
 
