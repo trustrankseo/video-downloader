@@ -71,7 +71,6 @@ class MainActivity : ComponentActivity() {
                             LaunchedEffect(Unit) {
                                 (application as? DownloaderApp)?.initializeMediaEngine()
                                 ReferralManager(this@MainActivity).captureReferralUri(intent?.data)
-                                AdsManager.initialize(this@MainActivity)
                             }
                             AppMenuShell()
                         }
@@ -163,28 +162,9 @@ fun DownloaderScreen(vm: DownloaderViewModel = viewModel()) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val reviewManager = remember { UptodownReviewManager(context) }
     var showReviewPrompt by rememberSaveable { mutableStateOf(false) }
-    val activity = context as? android.app.Activity
-
-    LaunchedEffect(ui.adEventId, ui.running) {
-        val eventId = ui.adEventId
-        if (eventId != 0L && !ui.running) {
-            val adShown = activity?.let {
-                AdsManager.showInterstitialIfEligible(
-                    activity = it,
-                    operationSucceeded = true,
-                    downloadRunning = false
-                )
-            } ?: false
-            if (adShown && ui.reviewEventId != 0L) {
-                vm.consumeReviewEvent(ui.reviewEventId)
-            }
-            vm.consumeAdEvent(eventId)
-        }
-    }
-
-    LaunchedEffect(ui.reviewEventId, ui.adEventId, ui.running) {
+    LaunchedEffect(ui.reviewEventId, ui.running) {
         val eventId = ui.reviewEventId
-        if (eventId != 0L && ui.adEventId == 0L && !ui.running) {
+        if (eventId != 0L && !ui.running) {
             showReviewPrompt = reviewManager.shouldPrompt()
             vm.consumeReviewEvent(eventId)
         }
@@ -237,8 +217,7 @@ fun DownloaderScreen(vm: DownloaderViewModel = viewModel()) {
     val active = ui.tasks.count { it.status == DownloadStatus.DOWNLOADING }
 
     Scaffold(
-        containerColor = Ink,
-        bottomBar = { AppLovinBanner() }
+        containerColor = Ink
     ) { padding ->
         LazyColumn(
             modifier = Modifier
