@@ -390,7 +390,7 @@ private fun PlatformStrip() {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("SUPPORTED PUBLIC MEDIA LINKS", style = MaterialTheme.typography.labelMedium, color = Cyan)
             Text(
-                "Paste a compatible public URL. Availability depends on the source and your authorization to save its content.",
+                "Paste a compatible public URL. Paid, subscription, rental, purchase and DRM-protected services are intentionally blocked.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Muted
             )
@@ -483,7 +483,11 @@ private fun DownloadComposer(
                 Text(
                     when (tab) {
                         0 -> if (singleUrl.isBlank()) "Paste a supported public video link" else detectPlatform(singleUrl)
-                        1 -> "${bulkUrlCount(bulkUrls)} valid links detected"
+                        1 -> buildString {
+                            append("${bulkUrlCount(bulkUrls)} allowed public links")
+                            val blocked = bulkBlockedCount(bulkUrls)
+                            if (blocked > 0) append(" • $blocked paid/DRM blocked")
+                        }
                         else -> if (collectionUrl.isBlank()) "Discover public videos automatically" else detectPlatform(collectionUrl)
                     },
                     color = Muted,
@@ -511,17 +515,30 @@ private fun DownloadComposer(
                 )
             }
 
+            val policyUrl = when (tab) {
+                0 -> singleUrl
+                2 -> collectionUrl
+                else -> ""
+            }
+            InputUrlPolicy.paidDrmBlockReason(policyUrl)?.let { reason ->
+                Text(
+                    reason,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Warning
+                )
+            }
+
             if (running) {
                 StopAction(onStop)
             } else {
                 when (tab) {
                     0 -> PrimaryAction(
                         "DOWNLOAD VIDEO",
-                        InputUrlPolicy.isValidWebUrl(singleUrl) && !InputUrlPolicy.isLikelyCollectionUrl(singleUrl),
+                        InputUrlPolicy.isAllowedDownloadUrl(singleUrl) && !InputUrlPolicy.isLikelyCollectionUrl(singleUrl),
                         onSingle
                     )
                     1 -> PrimaryAction("START ${bulkUrlCount(bulkUrls)} DOWNLOADS", bulkUrlCount(bulkUrls) > 0, onBulk)
-                    else -> PrimaryAction("DISCOVER & DOWNLOAD", InputUrlPolicy.isValidWebUrl(collectionUrl), onCollection)
+                    else -> PrimaryAction("DISCOVER & DOWNLOAD", InputUrlPolicy.isAllowedDownloadUrl(collectionUrl), onCollection)
                 }
             }
 
@@ -764,7 +781,14 @@ private fun EmptyState(outputPath: String) {
 
 private fun bulkUrlCount(raw: String): Int = raw.lineSequence()
     .map { InputUrlPolicy.normalize(it) }
+    .filter { InputUrlPolicy.isAllowedDownloadUrl(it) }
+    .distinct()
+    .count()
+
+private fun bulkBlockedCount(raw: String): Int = raw.lineSequence()
+    .map { InputUrlPolicy.normalize(it) }
     .filter { InputUrlPolicy.isValidWebUrl(it) }
+    .filter { InputUrlPolicy.isBlockedPaidDrmUrl(it) }
     .distinct()
     .count()
 
