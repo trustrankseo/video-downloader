@@ -47,8 +47,11 @@ jobs:
           APK="app/build/outputs/apk/uptodown/app-uptodown.apk"
           test -f "$APK"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
-          ACTUAL="$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          ACTUAL="$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^.*certificate SHA-256 digest: //p' | head -n 1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
           EXPECTED="146b8de20d69a75cecef7b949e2280a6779ae2590e4ed2af0c3f733a774af1ed"
+          echo "Expected signer SHA-256: $EXPECTED"
+          echo "Actual signer SHA-256:   $ACTUAL"
+          test -n "$ACTUAL"
           test "$ACTUAL" = "$EXPECTED"
       - name: Prepare release APK
         run: cp app/build/outputs/apk/uptodown/app-uptodown.apk UniversalDownloader-v1.5.0.apk
