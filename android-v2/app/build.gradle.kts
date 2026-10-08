@@ -6,7 +6,11 @@ plugins {
 fun buildConfigString(value: String): String =
     "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
-val uptodownAppUrl = providers.environmentVariable("UPTODOWN_APP_URL").orElse("").get()
+val uptodownAppUrl = providers.environmentVariable("UPTODOWN_APP_URL")
+    .orElse("")
+    .get()
+    .trim()
+    .ifBlank { "https://com-faisal-freshdownloader.en.uptodown.com/android/download" }
 val appLovinSdkKey = providers.environmentVariable("APPLOVIN_SDK_KEY").orElse("").get()
 val appLovinBannerAdUnitId = providers.environmentVariable("APPLOVIN_BANNER_AD_UNIT_ID").orElse("").get()
 val appLovinInterstitialAdUnitId = providers.environmentVariable("APPLOVIN_INTERSTITIAL_AD_UNIT_ID").orElse("").get()
@@ -147,7 +151,6 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    implementation("com.android.installreferrer:installreferrer:2.2")
     implementation("com.applovin:applovin-sdk:13.6.4")
 
     val youtubedlAndroid = "0.18.1"
