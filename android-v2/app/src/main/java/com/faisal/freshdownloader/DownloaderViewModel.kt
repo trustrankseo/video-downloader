@@ -54,7 +54,8 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
             state.value = state.value.copy(
                 running = false,
                 statusLine = if (abortRequested) "Download stopped" else "Finished",
-                reviewEventId = if (hasSuccess && reviewManager.shouldPrompt()) System.nanoTime() else 0L
+                reviewEventId = if (hasSuccess && reviewManager.shouldPrompt()) System.nanoTime() else 0L,
+                adEventId = if (hasSuccess) System.nanoTime() else 0L
             )
         }
     }
@@ -81,7 +82,8 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
             state.value = state.value.copy(
                 running = false,
                 statusLine = if (abortRequested) "Bulk queue stopped" else "Bulk queue finished",
-                reviewEventId = if (hasSuccess && reviewManager.shouldPrompt()) System.nanoTime() else 0L
+                reviewEventId = if (hasSuccess && reviewManager.shouldPrompt()) System.nanoTime() else 0L,
+                adEventId = if (hasSuccess) System.nanoTime() else 0L
             )
         }
     }
@@ -134,8 +136,15 @@ class DownloaderViewModel(app: Application) : AndroidViewModel(app) {
             state.value = state.value.copy(
                 running = false,
                 statusLine = if (abortRequested) "Channel/profile download stopped" else "Collection finished",
-                reviewEventId = if (hasSuccess && reviewManager.shouldPrompt()) System.nanoTime() else 0L
+                reviewEventId = if (hasSuccess && reviewManager.shouldPrompt()) System.nanoTime() else 0L,
+                adEventId = if (hasSuccess) System.nanoTime() else 0L
             )
+        }
+    }
+
+    fun consumeAdEvent(eventId: Long) {
+        if (eventId != 0L && state.value.adEventId == eventId) {
+            state.value = state.value.copy(adEventId = 0L)
         }
     }
 
