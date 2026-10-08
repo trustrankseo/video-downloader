@@ -1,7 +1,10 @@
 package com.faisal.freshdownloader
 
+import android.content.ContentValues
 import android.content.Context
+import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.CancellationException
@@ -22,10 +25,14 @@ import java.util.UUID
 class DownloaderEngine(private val context: Context) {
 
     private val outputDir: File by lazy {
-        File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            "UniversalDownloader"
-        ).apply { mkdirs() }
+        val base = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+        } else {
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        }
+        File(base, "UniversalDownloader").apply {
+            check(isDirectory || mkdirs()) { "Unable to create download workspace." }
+        }
     }
 
     @Volatile private var activeProcessId: String? = null
@@ -36,7 +43,12 @@ class DownloaderEngine(private val context: Context) {
         "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
 
-    fun outputPath(): String = outputDir.absolutePath
+    fun outputPath(): String =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            "Downloads/UniversalDownloader"
+        } else {
+            outputDir.absolutePath
+        }
 
     fun cancelActive(): Boolean {
         cancelRequested = true
@@ -61,7 +73,7 @@ class DownloaderEngine(private val context: Context) {
         cancelRequested = false
         runCatching {
             val normalized = normalizeInputUrl(url)
-            require(normalized.startsWith("http://") || normalized.startsWith("https://")) {
+            require(InputUrlPolicy.isValidWebUrl(normalized)) {
                 "Please enter a valid public http/https URL."
             }
 
@@ -78,6 +90,7 @@ class DownloaderEngine(private val context: Context) {
             request.addOption("--restrict-filenames")
             request.addOption("--retries", "5")
             request.addOption("--fragment-retries", "5")
+            request.addOption("--print", "after_move:filepath")
             request.addOption("-o", File(outputDir, "%(title)s [%(id)s].%(ext)s").absolutePath)
             applyPublicHeaders(request, targetUrl)
 
@@ -94,12 +107,29 @@ class DownloaderEngine(private val context: Context) {
             }
 
             val processId = "dl-${UUID.randomUUID()}"
+            val startedAt = System.currentTimeMillis()
             activeProcessId = processId
             try {
                 val response = YoutubeDL.getInstance().execute(request, processId) { progress, eta, _ ->
                     onProgress(progress, eta)
                 }
-                response.out
+                val finalFile = response.out
+                    .lineSequence()
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .map { File(it) }
+                    .lastOrNull { it.isFile }
+                    ?: outputDir.listFiles()
+                        ?.asSequence()
+                        ?.filter { it.isFile && !it.name.endsWith(".part", ignoreCase = true) }
+                        ?.filter { it.lastModified() >= startedAt - 5_000L }
+                        ?.maxByOrNull { it.lastModified() }
+
+                when {
+                    finalFile == null -> response.out
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> publishToSharedDownloads(finalFile)
+                    else -> finalFile.absolutePath
+                }
             } finally {
                 if (activeProcessId == processId) activeProcessId = null
             }
@@ -109,7 +139,7 @@ class DownloaderEngine(private val context: Context) {
     suspend fun discoverCollection(url: String): Result<List<String>> {
         cancelRequested = false
         val normalized = normalizeInputUrl(url)
-        if (!normalized.startsWith("http://") && !normalized.startsWith("https://")) {
+        if (!InputUrlPolicy.isValidWebUrl(normalized)) {
             return Result.failure(IllegalArgumentException("Please enter a valid public collection URL."))
         }
 
@@ -397,21 +427,7 @@ class DownloaderEngine(private val context: Context) {
             "tiktok.com/t/" in lower
     }
 
-    private fun normalizeInputUrl(raw: String): String {
-        val value = raw.trim()
-        return when {
-            value.startsWith("https://", true) || value.startsWith("http://", true) -> value
-            value.startsWith("://") -> "https$value"
-            value.startsWith("//") -> "https:$value"
-            value.startsWith("www.") ||
-                value.startsWith("facebook.com", true) ||
-                value.startsWith("instagram.com", true) ||
-                value.startsWith("tiktok.com", true) ||
-                value.startsWith("vm.tiktok.com", true) ||
-                value.startsWith("vt.tiktok.com", true) -> "https://$value"
-            else -> value
-        }
-    }
+    private fun normalizeInputUrl(raw: String): String = InputUrlPolicy.normalize(raw)
 
     private fun isYouTubeUrl(url: String): Boolean {
         val lower = normalizeInputUrl(url).lowercase()
@@ -493,10 +509,50 @@ class DownloaderEngine(private val context: Context) {
         .orEmpty()
         .take(160)
 
+    private fun publishToSharedDownloads(file: File): String {
+        val resolver = context.contentResolver
+        val relativePath = "${Environment.DIRECTORY_DOWNLOADS}/UniversalDownloader"
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeTypeFor(file))
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: error("Android could not create the shared Downloads entry.")
+
+        try {
+            resolver.openOutputStream(uri, "w")?.use { output ->
+                file.inputStream().use { input -> input.copyTo(output) }
+            } ?: error("Android could not open the shared Downloads file.")
+
+            values.clear()
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            file.delete()
+            return "Downloads/UniversalDownloader/${file.name}"
+        } catch (failure: Throwable) {
+            runCatching { resolver.delete(uri, null, null) }
+            throw failure
+        }
+    }
+
+    private fun mimeTypeFor(file: File): String = when (file.extension.lowercase()) {
+        "mp4" -> "video/mp4"
+        "webm" -> "video/webm"
+        "mkv" -> "video/x-matroska"
+        "mp3" -> "audio/mpeg"
+        "m4a" -> "audio/mp4"
+        "aac" -> "audio/aac"
+        "wav" -> "audio/wav"
+        else -> "application/octet-stream"
+    }
+
     suspend fun updateEngineStable(): Result<String> = withContext(Dispatchers.IO) {
         cancelRequested = false
         runCatching {
-            YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.NIGHTLY)
+            YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.STABLE)
             "Downloader engine updated"
         }
     }
