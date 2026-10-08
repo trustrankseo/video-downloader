@@ -35,6 +35,33 @@ object InputUrlPolicy {
         }.getOrDefault(false)
     }
 
+    fun isLikelyCollectionUrl(raw: String): Boolean {
+        val normalized = normalize(raw)
+        return runCatching {
+            val uri = URI(normalized)
+            val host = uri.host.orEmpty().lowercase().removePrefix("www.")
+            val path = uri.path.orEmpty().trim('/').lowercase()
+            val first = path.substringBefore('/')
+
+            when {
+                host == "youtube.com" || host.endsWith(".youtube.com") -> {
+                    path == "playlist" ||
+                        first.startsWith("@") ||
+                        first in setOf("channel", "c", "user")
+                }
+                host == "instagram.com" || host.endsWith(".instagram.com") -> {
+                    path.isNotBlank() &&
+                        !path.contains('/') &&
+                        first !in setOf("reel", "p", "stories", "explore", "tv")
+                }
+                host == "tiktok.com" || host.endsWith(".tiktok.com") -> {
+                    first.startsWith("@") && !path.contains("/video/")
+                }
+                else -> false
+            }
+        }.getOrDefault(false)
+    }
+
     private val BARE_DOMAIN =
         Regex("^[A-Za-z0-9.-]+\\.[A-Za-z]{2,}(?::\\d{1,5})?(?:/[^\\s]*)?$")
 }
