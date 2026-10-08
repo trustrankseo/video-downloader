@@ -65,12 +65,14 @@ class MainActivity : ComponentActivity() {
                     AnimatedSplash { showSplash = false }
                 } else {
                     PrivacyConsentGate {
-                        LaunchedEffect(Unit) {
-                            (application as? DownloaderApp)?.initializeMediaEngine()
-                            ReferralManager(this@MainActivity).captureReferralUri(intent?.data)
-                            AdsManager.initialize(this@MainActivity)
+                        LegacyStoragePermissionGate {
+                            LaunchedEffect(Unit) {
+                                (application as? DownloaderApp)?.initializeMediaEngine()
+                                ReferralManager(this@MainActivity).captureReferralUri(intent?.data)
+                                AdsManager.initialize(this@MainActivity)
+                            }
+                            AppMenuShell()
                         }
-                        AppMenuShell()
                     }
                 }
             }
